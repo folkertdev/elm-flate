@@ -1,4 +1,4 @@
-module Deflate.BitWriter exposing (BitWriter, State, empty, flush, run, writeBit, writeBits, writeEncoder)
+module Deflate.BitWriter exposing (BitWriter, empty, flush, run, writeBit, writeBits, writeEncoder)
 
 import Array exposing (Array)
 import Bitwise
@@ -6,56 +6,31 @@ import Bytes exposing (Endianness(..))
 import Bytes.Encode as Encode exposing (Encoder)
 
 
-run : State -> List Encoder
-run state =
-    List.reverse state.inner
-
-
-type alias State =
-    { buf : Int, end : Int, inner : List Encoder }
-
-
-type Instruction
-    = WriteBits Int Int
-    | WriteEncoder Encoder
-    | Flush
-
-
 type alias BitWriter =
-    State
+    { tag : Int, bitsWritten : Int, encoders : List Encoder }
 
 
-
-{-
-
-   print : BitWriter -> BitWriter
-   print (BitWriter writer) =
-       let
-           _ =
-               -- Debug.log "writer" (runHelp (List.reverse writer) { buf = 5, end = 3, inner = [] })
-               ()
-       in
-       BitWriter writer
+run : BitWriter -> List Encoder
+run state =
+    List.reverse state.encoders
 
 
-   append : BitWriter -> BitWriter -> BitWriter
-   append (BitWriter later) (BitWriter first) =
-       BitWriter (later ++ first)
-
-
-   concat : List BitWriter -> BitWriter -> BitWriter
-   concat writers (BitWriter first) =
-       -- BitWriter (Concat writers :: first)
-       List.foldl (\next accum -> accum |> append next) (BitWriter first) writers
--}
-
-
-empty : State
+empty : BitWriter
 empty =
-    { buf = 0, end = 0, inner = [] }
+    { tag = 0, bitsWritten = 0, encoders = [] }
 
 
-writeBit : Bool -> State -> State
+{-| Write some bits
+
+New bits are placed on the left (in the higher positions)
+
+-}
+writeBits : Int -> Int -> BitWriter -> BitWriter
+writeBits bitwidth bits state =
+    flushIfNeeded (Bitwise.or state.tag (Bitwise.shiftLeftBy state.bitsWritten bits)) (state.bitsWritten + bitwidth) state.encoders
+
+
+writeBit : Bool -> BitWriter -> BitWriter
 writeBit b =
     case b of
         False ->
@@ -65,35 +40,41 @@ writeBit b =
             writeBits 1 1
 
 
-writeBits : Int -> Int -> State -> State
-writeBits bitwidth bits state =
-    flushIfNeeded (Bitwise.or state.buf (Bitwise.shiftLeftBy state.end bits)) (state.end + bitwidth) state.inner
+{-| unsafely put an encoder into the list of encoders
 
+This is only safe if the reader was just flushed, otherwise some of the data might be in the tag giving incorrect results.
 
-writeEncoder : Encoder -> State -> State
+-}
+writeEncoder : Encoder -> BitWriter -> BitWriter
 writeEncoder encoder state =
-    { buf = state.buf, end = state.end, inner = encoder :: state.inner }
+    { tag = state.tag, bitsWritten = state.bitsWritten, encoders = encoder :: state.encoders }
 
 
-flushIfNeeded buf end inner =
-    if end >= 16 then
-        { inner = Encode.unsignedInt16 LE buf :: inner
-        , end = end - 16
-        , buf = Bitwise.shiftRightBy 16 buf
+{-| flush the lower 16 bits
+-}
+flushIfNeeded : Int -> Int -> List Encoder -> BitWriter
+flushIfNeeded tag bitsWritten encoders =
+    if bitsWritten >= 16 then
+        { encoders = Encode.unsignedInt16 LE tag :: encoders
+        , bitsWritten = bitsWritten - 16
+        , tag = Bitwise.shiftRightBy 16 tag
         }
 
     else
-        { buf = buf, end = end, inner = inner }
+        { tag = tag, bitsWritten = bitsWritten, encoders = encoders }
 
 
-flush : State -> State
+{-| Force flush all written bits
+-}
+flush : BitWriter -> BitWriter
 flush state =
-    flushLoop state.buf state.end state.inner
+    flushLoop state.tag state.bitsWritten state.encoders
 
 
-flushLoop buf end inner =
-    if end > 0 then
-        flushLoop (Bitwise.shiftRightBy 8 buf) (max 0 (end - 8)) (Encode.unsignedInt8 buf :: inner)
+flushLoop : Int -> Int -> List Encoder -> BitWriter
+flushLoop tag bitsWritten encoders =
+    if bitsWritten > 0 then
+        flushLoop (Bitwise.shiftRightBy 8 tag) (max 0 (bitsWritten - 8)) (Encode.unsignedInt8 tag :: encoders)
 
     else
-        { buf = buf, end = end, inner = inner }
+        { tag = tag, bitsWritten = bitsWritten, encoders = encoders }

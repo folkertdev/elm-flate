@@ -83,8 +83,8 @@ encodeRawBlock ( isLastBlock, buffer ) bitWriter =
         |> BitWriter.writeBits 2 0
         |> BitWriter.flush
         |> BitWriter.writeEncoder (Encode.unsignedInt16 LE size)
-        |> BitWriter.writeEncoder (Encode.unsignedInt16 LE (Bitwise.and 0xFFFF <| Bitwise.shiftRightZfBy 0 <| Bitwise.complement size))
-        |> BitWriter.writeEncoder (Encode.bytes (ByteArray.fer sliced))
+        |> BitWriter.writeEncoder (Encode.unsignedInt16 LE (Bitwise.complement size))
+        |> BitWriter.writeEncoder (Encode.bytes (ByteArray.toBytes sliced))
 
 
 
@@ -103,6 +103,7 @@ encodeDynamic windowSize buffer =
         |> Encode.encode
 
 
+encodeDynamicBlock : Maybe Int -> ( Bool, Bytes ) -> BitWriter -> BitWriter
 encodeDynamicBlock windowSize ( isLastBlock, buffer ) bitWriter =
     bitWriter
         |> BitWriter.writeBit isLastBlock
@@ -141,6 +142,7 @@ encodeStatic windowSize buffer =
         |> Encode.encode
 
 
+encodeStaticBlock : Maybe Int -> ( Bool, Bytes ) -> BitWriter -> BitWriter
 encodeStaticBlock windowSize ( isLastBlock, buffer ) bitWriter =
     bitWriter
         |> BitWriter.writeBit isLastBlock

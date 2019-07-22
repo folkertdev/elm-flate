@@ -1,4 +1,4 @@
-module Huffman exposing (Tree, encode, fromFrequencies, fromList, getWidth, hardcodedStaticHuffmanTree, lookup, new, newCode, restoreCanonicalHuffmanCodes, setMapping, usedMaxSymbol)
+module Huffman exposing (Code, Tree, codeFromRecord, encode, fromFrequencies, fromList, getBits, getWidth, hardcodedStaticHuffmanTree, inverseEndian, lookup, new, newCode, restoreCanonicalHuffmanCodes, setMapping, usedMaxSymbol)
 
 import Array exposing (Array)
 import Bitwise
@@ -24,6 +24,11 @@ newCode width bits =
 getWidth : Code -> Int
 getWidth (Code { width }) =
     width
+
+
+getBits : Code -> Int
+getBits (Code { bits }) =
+    bits
 
 
 type Tree
@@ -130,6 +135,7 @@ fromBitWidths bitWidths =
     restoreCanonicalHuffmanCodes bitWidths (new symbolCount)
 
 
+restoreCanonicalHuffmanCodes : Array Int -> Tree -> Tree
 restoreCanonicalHuffmanCodes bitWidths tree =
     let
         symbols =

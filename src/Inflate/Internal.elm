@@ -46,7 +46,7 @@ uncompressHelp output =
                             List.sum (List.map Bytes.width output)
                     in
                     inflateBlockData { literal = sltree, distance = sdtree } lengthSoFar Array.empty
-                        |> BitReader.map ByteArray.fer
+                        |> BitReader.map ByteArray.toBytes
                         |> BitReader.map (\v -> v :: output)
 
                 2 ->
@@ -56,7 +56,7 @@ uncompressHelp output =
                     in
                     decodeTrees
                         |> BitReader.andThen (\( ltree, dtree ) -> inflateBlockData { literal = ltree, distance = dtree } lengthSoFar Array.empty)
-                        |> BitReader.map ByteArray.fer
+                        |> BitReader.map ByteArray.toBytes
                         |> BitReader.map (\v -> v :: output)
 
                 _ ->

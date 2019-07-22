@@ -1,4 +1,4 @@
-module ByteArray exposing (decoder, fel, felList, fer, fromBytes)
+module ByteArray exposing (decoder, fromBytes, toBytes)
 
 import Array exposing (Array)
 import Bitwise
@@ -15,6 +15,11 @@ fromBytes buffer =
 
         Just value ->
             value
+
+
+toBytes : Array Int -> Bytes
+toBytes =
+    fer
 
 
 decoder : Int -> Decoder (Array Int)

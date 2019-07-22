@@ -126,10 +126,7 @@ flush windowSize buffer =
     let
         codes =
             flushLoop 0 windowSize buffer (PrefixTable.new (Array.length buffer)) []
-
-        -- remaining = Array.slice i (Array.length buffer) buffer
     in
-    -- List.reverse (Array.foldl (\e accum -> Literal e :: accum) codes remaining)
     List.reverse codes
 
 
@@ -226,6 +223,7 @@ longestCommonPrefix i j array =
     longestCommonPrefixLoop i j (i + remaining) 0 array
 
 
+longestCommonPrefixLoop : Int -> Int -> Int -> Int -> Array number -> Int
 longestCommonPrefixLoop i j limit accum array =
     if i < limit then
         case Array.get i array of

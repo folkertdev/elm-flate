@@ -90,16 +90,15 @@ suite =
                     in
                     asBytes
                         |> Expect.equal (Just (Array.fromList [ 75, 74, 44, 2, 0 ]))
-            , only <|
-                test "frankenstein" <|
-                    \_ ->
-                        Frankenstein.text
-                            |> Encode.string
-                            |> Encode.encode
-                            |> Deflate.encodeStatic (Just LZ77.maxWindowSize)
-                            |> Inflate.inflate
-                            |> Maybe.andThen (Decode.decode (Decode.string (Encode.getStringWidth Frankenstein.text)))
-                            |> Expect.equal (Just Frankenstein.text)
+            , test "frankenstein" <|
+                \_ ->
+                    Frankenstein.text
+                        |> Encode.string
+                        |> Encode.encode
+                        |> Deflate.encodeStatic (Just LZ77.maxWindowSize)
+                        |> Inflate.inflate
+                        |> Maybe.andThen (Decode.decode (Decode.string (Encode.getStringWidth Frankenstein.text)))
+                        |> Expect.equal (Just Frankenstein.text)
             ]
         , describe "dynamic"
             [ test "foo" <|

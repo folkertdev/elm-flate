@@ -261,40 +261,41 @@ writeDynamicHuffmanCodec trees bitWriter =
                     |> Maybe.withDefault 0
                 )
 
-        v1 =
+        v1 : BitWriter -> BitWriter
+        v1 writer =
             List.take bitwidthCodeCount bitwidth_code_order
                 |> List.foldl
-                    (\i first ->
-                        first
-                            >> (let
-                                    width =
-                                        if Array.get i codeCounts == Just 0 then
-                                            0
-
-                                        else
-                                            Huffman.lookup i bitWidthEncoder
-                                                |> Maybe.map Huffman.getWidth
-                                                |> Maybe.withDefault 0
-                                in
-                                BitWriter.writeBits 3 width
-                               )
-                    )
-                    identity
-
-        v2 =
-            codes
-                |> Array.foldl
-                    (\( code_, bits, extra ) first ->
-                        first
-                            >> Huffman.encode code_ bitWidthEncoder
-                            >> (if bits > 0 then
-                                    BitWriter.writeBits bits extra
+                    (\i current ->
+                        let
+                            width =
+                                if Array.get i codeCounts == Just 0 then
+                                    0
 
                                 else
-                                    identity
-                               )
+                                    Huffman.lookup i bitWidthEncoder
+                                        |> Maybe.map Huffman.getWidth
+                                        |> Maybe.withDefault 0
+                        in
+                        current
+                            |> BitWriter.writeBits 3 width
                     )
-                    identity
+                    writer
+
+        v2 : BitWriter -> BitWriter
+        v2 writer =
+            codes
+                |> Array.foldl
+                    (\( code_, bits, extra ) current ->
+                        if bits > 0 then
+                            current
+                                |> Huffman.encode code_ bitWidthEncoder
+                                |> BitWriter.writeBits bits extra
+
+                        else
+                            current
+                                |> Huffman.encode code_ bitWidthEncoder
+                    )
+                    writer
     in
     bitWriter
         |> BitWriter.writeBits 5 (literal_code_count - 257)
@@ -347,12 +348,6 @@ calculateRunLengths lengths accum =
                                 { value = c, count = 1 } :: runLengths
             in
             calculateRunLengths rest (List.foldl folder accum list)
-
-
-
--- last : Array a -> Maybe a
--- last array =
---     Array.get (Array.length array - 1) array
 
 
 position : (a -> Bool) -> List a -> Maybe Int

@@ -50,7 +50,8 @@ various =
                     test ("lot of zeros " ++ String.fromInt index) <|
                         \_ ->
                             input
-                                |> ByteArray.felList
+                                |> Array.fromList
+                                |> ByteArray.toBytes
                                 |> External.inflate
                                 |> Maybe.andThen (\b -> Decode.decode (exactly (Bytes.width b) Decode.unsignedInt8) b)
                                 |> Expect.equal (Just output)
@@ -70,7 +71,7 @@ various =
                 setup index input output =
                     test ("lot of zeros " ++ String.fromInt index) <|
                         \_ ->
-                            case input |> ByteArray.felList |> ZLib.inflate of
+                            case input |> Array.fromList |> ByteArray.toBytes |> ZLib.inflate of
                                 Ok v ->
                                     Just v
                                         |> Maybe.andThen (\b -> Decode.decode (exactly (Bytes.width b) Decode.unsignedInt8) b)
@@ -86,21 +87,24 @@ various =
         , test "foo dynamic" <|
             \_ ->
                 [ 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06 ]
-                    |> ByteArray.felList
+                    |> Array.fromList
+                    |> ByteArray.toBytes
                     |> External.inflate
                     |> Maybe.andThen (Decode.decode (Decode.string 3))
                     |> Expect.equal (Just "foo")
         , test "foo static" <|
             \_ ->
                 [ 0x4B, 0xCB, 0xCF, 0x07, 0x00 ]
-                    |> ByteArray.felList
+                    |> Array.fromList
+                    |> ByteArray.toBytes
                     |> External.inflate
                     |> Maybe.andThen (Decode.decode (Decode.string 3))
                     |> Expect.equal (Just "foo")
         , test "foo none" <|
             \_ ->
                 [ 0x01, 0x03, 0x00, 0xFC, 0xFF, 0x66, 0x6F, 0x6F ]
-                    |> ByteArray.felList
+                    |> Array.fromList
+                    |> ByteArray.toBytes
                     |> External.inflate
                     |> Maybe.andThen (Decode.decode (Decode.string 3))
                     |> Expect.equal (Just "foo")
@@ -109,7 +113,7 @@ various =
                 setup name input output =
                     test name <|
                         \_ ->
-                            case input |> ByteArray.felList |> ZLib.inflate of
+                            case input |> Array.fromList |> ByteArray.toBytes |> ZLib.inflate of
                                 Ok v ->
                                     Just v
                                         |> Maybe.andThen (\b -> Decode.decode (Decode.string 3) b)
@@ -128,7 +132,8 @@ various =
                     test name <|
                         \_ ->
                             hexes
-                                |> ByteArray.felList
+                                |> Array.fromList
+                                |> ByteArray.toBytes
                                 |> GZip.inflate
                                 |> Maybe.andThen (Decode.decode (Decode.string 3))
                                 |> Expect.equal (Just "foo")
