@@ -33,10 +33,23 @@ inflate (deflate (Encode.encode (Encode.string text)))
 ## Performance
 
 Performance is not great for the moment, in particular using LZ77 compression is very slow for large data. 
+If all you need is data that looks like deflated data, then raw encoding is the fastest
 
-LZ77 is a method of finding repeating subsections of the data, and inserting backward references whenever repeated subsections are found. 
-This algorithm does a lot of subsection matching, and consequently a lot of array lookups. 
-This is always the most computationally expensive step in deflate encoding, but the particulars of elm's `Bytes` and `Array` implementations make it worse in elm at the moment. 
+```elm
+deflateWithOptions Flate.Raw
+```
 
-But with this package as a testing ground, hopefully we can make better primitives that will make this package faster in the future. 
+If you actually want some compression but are worried about speed, then you can use the `NoCompression` argument. This skips LZ77 compression, but still uses a huffman table to make the data a little smaller at relatively low cost. 
+
+```elm
+deflateWithOptions (Flate.Static Flate.NoCompression)
+```
+
+Of course, if you really want compression and speed is less of a factor, the default `deflate` will use a dynamic (custom to your data) huffman table and LZ77 compression.
+
+```elm
+deflateWithOptions (Flate.Dynamic (Flate.WithWindowSize LZ77.maxWindowSize))
+```
+
+With this package as a testing ground, hopefully we can make better primitives that will make this package faster in the future. 
 For now it at least works, and we can build thinks on top of it. For instance PNG encoding is now possible.

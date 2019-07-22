@@ -7,7 +7,7 @@ module Flate exposing
     , adler32, crc32
     )
 
-{-| An implementation of [DEFLATE]() compression.
+{-| An implementation of [DEFLATE](https://www.ietf.org/rfc/rfc1951.txt) compression.
 
 The deflate format is used in common file formats like gzip, png, and woff.
 
@@ -67,13 +67,21 @@ import Inflate.Inflate as Inflate
 import LZ77
 
 
-{-| -}
+{-| Inflate (decode) data encoded with DEFLATE
+-}
 inflate : Bytes -> Maybe Bytes
 inflate =
     Inflate.inflate
 
 
-{-| Deflate a sequence of bytes
+{-| Deflate a sequence of bytes. This is an alias for:
+
+    deflateWithOptions
+        (Dynamic (WithWindowSize LZ77.maxWindowSize))
+
+That means good compression, but can be slow for large data.
+The README elaborates on deflate performance. `deflateWithOptions` allows you to pick different deflate options.
+
 -}
 deflate : Bytes -> Bytes
 deflate =
@@ -126,7 +134,7 @@ deflateWithOptions encoding buffer =
 {-| Inflate data compressed with gzip.
 gzip adds some extra data at the front and the back. This decoder will take care of that and also check the checksum if specified.
 
-**Note**: this only gives back the inflated data block. The header and trailer parts are discarded.
+**Note**: this only gives back the inflated data block. The header and trailer parts are discarded, but checksums (if specified) will be checked.
 
 -}
 inflateGZip : Bytes -> Maybe Bytes
@@ -184,7 +192,7 @@ deflateGZipWithOptions encoding buffer =
 {-| Inflate data compressed with [zlib](http://www.zlib.net/).
 zlib adds some extra data at the front and the back. This decoder will take care of that and also check the checksum if specified.
 
-**Note**: this only gives back the inflated data block. The header and trailer parts are discarded.
+**Note**: this only gives back the inflated data block. The header and trailer parts are discarded, but checksums (if specified) are checked.
 
 -}
 inflateZlib : Bytes -> Maybe Bytes
