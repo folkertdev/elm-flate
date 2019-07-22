@@ -11,7 +11,7 @@ module Flate exposing
 
 The deflate format is used in common file formats like gzip, png, and woff.
 
-    import Bytes
+    import Bytes exposing (Bytes)
     import Bytes.Encode as Encode
     import Bytes.Decode as Decode
 

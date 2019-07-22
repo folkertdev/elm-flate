@@ -10,7 +10,7 @@ It additionally exposes LZ77 compression and the Adler32 and Crc32 checksum algo
 ## Example
 
 ```elm
-import Bytes
+import Bytes exposing (Bytes)
 import Bytes.Encode as Encode
 import Bytes.Decode as Decode
 
