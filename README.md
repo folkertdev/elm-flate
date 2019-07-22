@@ -53,3 +53,10 @@ deflateWithOptions (Flate.Dynamic (Flate.WithWindowSize LZ77.maxWindowSize))
 
 With this package as a testing ground, hopefully we can make better primitives that will make this package faster in the future. 
 For now it at least works, and we can build thinks on top of it. For instance PNG encoding is now possible.
+
+## Acknowledgements
+
+* The decoder is based on the [libflate](https://docs.rs/libflate/0.1.25/libflate/) rust crate by Takeru Ohta
+* The encoder is based on [tiny-inflate](https://github.com/foliojs/tiny-inflate) written by Devon Govett
+* Which is a JS port of the  [tinf](https://bitbucket.org/jibsen/tinf/src/default/) c library by Jørgen Ibsen
+
