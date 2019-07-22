@@ -7,9 +7,11 @@ import Bytes.Decode as Decode exposing (Decoder)
 import Bytes.Encode as Encode exposing (Encoder)
 
 
+{-| Turn `Bytes` into `Array Int` efficiently
+-}
 fromBytes : Bytes -> Array Int
 fromBytes buffer =
-    case Decode.decode (decodeByteArray (Bytes.width buffer)) buffer of
+    case Decode.decode (decoder (Bytes.width buffer)) buffer of
         Nothing ->
             Array.empty
 
@@ -17,19 +19,19 @@ fromBytes buffer =
             value
 
 
-toBytes : Array Int -> Bytes
-toBytes =
-    fer
-
-
 decoder : Int -> Decoder (Array Int)
-decoder =
-    decodeByteArray
-
-
-decodeByteArray : Int -> Decoder (Array Int)
-decodeByteArray n =
+decoder n =
     Decode.loop ( n, Array.empty ) decodeByteArrayHelp
+
+
+{-| Turn `Array Int` into `Bytes` efficiently
+-}
+toBytes : Array Int -> Bytes
+toBytes array =
+    Array.foldr fasterEncodeFolderR ( 0, 0, [] ) array
+        |> fasterEncodeR
+        |> Encode.sequence
+        |> Encode.encode
 
 
 {-| Decode a byte array, but push the elements onto an existing array
@@ -83,28 +85,9 @@ decodeByteArrayHelp ( remaining, accum ) =
         Decode.succeed (Decode.Done accum)
 
 
-fer : Array Int -> Bytes
-fer array =
-    Array.foldr fasterEncodeFolderR ( 0, 0, [] ) array
-        |> fasterEncodeR
-        |> Encode.sequence
-        |> Encode.encode
-
-
-fel : Array Int -> Bytes
-fel array =
-    Array.foldl fasterEncodeFolderL ( 0, 0, [] ) array
-        |> fasterEncodeL
-        |> Encode.sequence
-        |> Encode.encode
-
-
-felList : List Int -> Bytes
-felList array =
-    Array.fromList array
-        |> fer
-
-
+{-| Finish up with the remaining (left-most) bytes
+-}
+fasterEncodeR : ( Int, Int, List Encoder ) -> List Encoder
 fasterEncodeR ( bytesOnAccum, accum, otherEncoders ) =
     let
         encoders =
@@ -131,6 +114,16 @@ fasterEncodeR ( bytesOnAccum, accum, otherEncoders ) =
     encoders
 
 
+{-| Encode a byte array using folding from the right
+
+This function minimizes the number of encoders by combining multiple bytes into a unsignedInt32.
+The smaller number of encoders is crucial because
+
+  - fewer items to iterate over
+  - less allocation
+  - an implementation detail in `Encode.sequence` that makes encoding a sequence of values with the same length much slower than it could be.
+
+-}
 fasterEncodeFolderR byte ( bytesOnAccum, accum, encoders ) =
     case bytesOnAccum of
         0 ->

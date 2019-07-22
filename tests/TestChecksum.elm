@@ -30,7 +30,7 @@ adler32 =
                 \_ ->
                     data
                         |> Array.fromList
-                        |> ByteArray.fer
+                        |> ByteArray.toBytes
                         |> Adler32.adler32
                         |> Expect.equal expected
     in
@@ -52,7 +52,8 @@ crc32 =
             test (Debug.toString data) <|
                 \_ ->
                     data
-                        |> ByteArray.felList
+                        |> Array.fromList
+                        |> ByteArray.toBytes
                         |> Crc32.crc32
                         |> Expect.equal expected
     in
