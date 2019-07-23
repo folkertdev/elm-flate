@@ -261,25 +261,14 @@ decodeSymbol tree =
                     Err e
 
                 Ok d ->
-                    if tree == sltree then
-                        let
-                            { cur, tag, len, sum } =
-                                decodeSymbolInnerLoop tree 0 d.tag 0 0
+                    let
+                        { cur, tag, len, sum } =
+                            decodeSymbolInnerLoop tree 0 d.tag 0 0
 
-                            result =
-                                unsafeGet (sum + cur) tree.trans
-                        in
-                        Ok ( result, { tag = tag, bitcount = d.bitcount - len, buffer = d.buffer } )
-
-                    else
-                        let
-                            { cur, tag, len, sum } =
-                                decodeSymbolInnerLoop tree 0 d.tag 0 0
-
-                            result =
-                                unsafeGet (sum + cur) tree.trans
-                        in
-                        Ok ( result, { tag = tag, bitcount = d.bitcount - len, buffer = d.buffer } )
+                        result =
+                            unsafeGet (sum + cur) tree.trans
+                    in
+                    Ok ( result, { tag = tag, bitsAvailable = d.bitsAvailable - len, buffer = d.buffer } )
 
 
 
@@ -417,14 +406,6 @@ inflateBlockDataHelp trees ( outputLength, output ) =
 
                             else
                                 arr
-
-                        copySectionToEnd : Int -> Int -> Array Int -> Array Int
-                        copySectionToEnd i end accum =
-                            let
-                                section =
-                                    Array.slice (i - outputLength) (end - outputLength) accum
-                            in
-                            Array.append accum section
 
                         decodeLength : BitReader Int
                         decodeLength =

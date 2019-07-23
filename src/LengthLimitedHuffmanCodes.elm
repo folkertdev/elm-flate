@@ -1,5 +1,11 @@
 module LengthLimitedHuffmanCodes exposing (calculate, merge, package)
 
+{-| Based on <https://www.ics.uci.edu/~dan/pubs/LenLimHuff.pdf>
+
+but the implementation is not as efficient
+
+-}
+
 import Array exposing (Array)
 import List.Extra
 

@@ -83,6 +83,7 @@ inverseEndianLoop i limit f t =
         t
 
 
+fromFrequencies : Array Int -> Int -> Tree
 fromFrequencies symbolFrequencies maxBitWidth_ =
     let
         maxBitWidth =
@@ -94,6 +95,7 @@ fromFrequencies symbolFrequencies maxBitWidth_ =
     fromBitWidths codeBitWidhts
 
 
+calcOptimalMaxBitWidth : Array Int -> Int
 calcOptimalMaxBitWidth frequencies =
     let
         createHeap =
@@ -115,8 +117,8 @@ calcOptimalMaxBitWidth frequencies =
                     max 1 value
 
                 ( weight1, width1 ) :: ( weight2, width2 ) :: rest ->
-                    -- @optimize do better here
-                    heapModificationLoop (List.reverse <| List.sort (( weight1 + weight2, 1 + max width1 width2 ) :: rest))
+                    -- flip comparison to get a max-heap
+                    heapModificationLoop (List.sortWith (\a b -> compare b a) (( weight1 + weight2, 1 + max width1 width2 ) :: rest))
     in
     heapModificationLoop createHeap
 

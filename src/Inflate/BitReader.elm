@@ -12,7 +12,7 @@ type alias Tree =
 
 
 type alias State =
-    { tag : Int, bitcount : Int, buffer : Bytes }
+    { tag : Int, bitsAvailable : Int, buffer : Bytes }
 
 
 decode : Bytes -> BitReader a -> Result String a
@@ -21,7 +21,7 @@ decode bytes (BitReader reader) =
         initialState =
             { buffer = bytes
             , tag = 0
-            , bitcount = 0
+            , bitsAvailable = 0
             }
     in
     reader initialState
@@ -214,14 +214,14 @@ readBits numberOfBits base =
                             ( val, newTag ) =
                                 shiftOffTag d.tag numberOfBits
                         in
-                        Ok ( val + base, { tag = newTag, bitcount = d.bitcount - numberOfBits, buffer = d.buffer } )
+                        Ok ( val + base, { tag = newTag, bitsAvailable = d.bitsAvailable - numberOfBits, buffer = d.buffer } )
 
 
 getBit : BitReader Int
 getBit =
     BitReader <|
         \state ->
-            if state.bitcount == 0 then
+            if state.bitsAvailable == 0 then
                 -- must read new byte
                 case runDecoder 1 Decode.unsignedInt8 state of
                     Ok ( tag, newBuffer ) ->
@@ -232,7 +232,7 @@ getBit =
                             newTag =
                                 Bitwise.shiftRightZfBy 1 tag
                         in
-                        Ok ( bit, { tag = newTag, bitcount = 7, buffer = newBuffer } )
+                        Ok ( bit, { tag = newTag, bitsAvailable = 7, buffer = newBuffer } )
 
                     Err e ->
                         Err ("getBit > " ++ e)
@@ -245,11 +245,11 @@ getBit =
                     newTag =
                         Bitwise.shiftRightZfBy 1 state.tag
                 in
-                Ok ( bit, { buffer = state.buffer, tag = newTag, bitcount = state.bitcount - 1 } )
+                Ok ( bit, { buffer = state.buffer, tag = newTag, bitsAvailable = state.bitsAvailable - 1 } )
 
 
-shiftOntoTag tag value bitcount =
-    Bitwise.or tag (Bitwise.shiftLeftBy bitcount value)
+shiftOntoTag tag value bitsAvailable =
+    Bitwise.or tag (Bitwise.shiftLeftBy bitsAvailable value)
 
 
 shiftOffTag tag numberOfBits =
@@ -278,21 +278,21 @@ fillWindow state =
 
                 Ok ( byte, newBuffer ) ->
                     Ok
-                        { tag = shiftOntoTag state.tag byte state.bitcount
-                        , bitcount = state.bitcount + (width * 8)
+                        { tag = shiftOntoTag state.tag byte state.bitsAvailable
+                        , bitsAvailable = state.bitsAvailable + (width * 8)
                         , buffer = newBuffer
                         }
     in
-    if state.bitcount == 0 then
+    if state.bitsAvailable == 0 then
         helper 4 (Decode.unsignedInt32 LE)
 
-    else if state.bitcount <= 8 then
+    else if state.bitsAvailable <= 8 then
         helper 3 (unsignedInt24 LE)
 
-    else if state.bitcount <= 16 then
+    else if state.bitsAvailable <= 16 then
         helper 2 (Decode.unsignedInt16 LE)
 
-    else if state.bitcount < 24 then
+    else if state.bitsAvailable < 24 then
         helper 1 Decode.unsignedInt8
 
     else
