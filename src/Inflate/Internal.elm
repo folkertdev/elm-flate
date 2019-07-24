@@ -176,28 +176,29 @@ buildTree lengths offset num =
             Array.foldl (\v ( sum, accum ) -> ( v + sum, Array.push sum accum )) ( 0, Array.empty ) table
                 |> Tuple.second
 
-        helper : Int -> { translation : Array Int, offsets : Array Int } -> { translation : Array Int, offsets : Array Int }
-        helper i state =
-            case Array.get (offset + i) lengths of
-                Nothing ->
-                    state
+        go i currentTranslation currentOffsets =
+            if i < num then
+                case Array.get (offset + i) lengths of
+                    Nothing ->
+                        go (i + 1) currentTranslation currentOffsets
 
-                Just v ->
-                    if v /= 0 then
-                        case Array.get v state.offsets of
-                            Nothing ->
-                                state
+                    Just v ->
+                        if v /= 0 then
+                            case Array.get v currentOffsets of
+                                Nothing ->
+                                    currentTranslation
 
-                            Just w ->
-                                { offsets = update v (\x -> x + 1) state.offsets
-                                , translation = Array.set w i state.translation
-                                }
+                                Just w ->
+                                    go (i + 1) (Array.set w i currentTranslation) (update v (\x -> x + 1) currentOffsets)
 
-                    else
-                        state
+                        else
+                            go (i + 1) currentTranslation currentOffsets
 
-        { translation } =
-            List.foldl helper { translation = Array.repeat num 0, offsets = offsets } (List.range 0 (num - 1))
+            else
+                currentTranslation
+
+        translation =
+            go 0 (Array.repeat num 0) offsets
     in
     { table = Array.toList table, trans = translation }
 
@@ -280,37 +281,56 @@ decodeSymbolInnerLoop table cur tag bitsAvailable sum =
 
 decodeTrees : BitReader ( Tree, Tree )
 decodeTrees =
-    let
-        cont : Int -> Int -> Int -> BitReader ( Tree, Tree )
-        cont hlit hdist hclen =
-            let
-                decodeTreeLengths : List Int -> BitReader (Array Int)
-                decodeTreeLengths codeLengths =
-                    let
-                        clcs =
-                            Array.toList (Array.slice 0 hclen clcIndices)
-
-                        initialLengths =
-                            List.map2 Tuple.pair clcs codeLengths
-                                |> List.foldl (\( index, codeLength ) -> Array.set index codeLength) (Array.repeat (288 + 32) 0)
-
-                        codeTree =
-                            buildTree initialLengths 0 19
-                    in
-                    BitReader.loop ( 0, initialLengths ) (decodeDynamicTreeLength codeTree hlit hdist)
-
-                buildTrees : Array Int -> ( Tree, Tree )
-                buildTrees lengths =
-                    ( buildTree lengths 0 hlit
-                    , buildTree lengths hlit hdist
-                    )
-            in
-            BitReader.exactly hclen (BitReader.readBits 3 0)
-                |> BitReader.andThen decodeTreeLengths
-                |> BitReader.map buildTrees
-    in
     BitReader.map3 cont (BitReader.readBits 5 257) (BitReader.readBits 5 1) (BitReader.readBits 4 4)
         |> BitReader.andThen identity
+
+
+cont : Int -> Int -> Int -> BitReader ( Tree, Tree )
+cont hlit hdist hclen =
+    let
+        buildTrees : Array Int -> ( Tree, Tree )
+        buildTrees lengths =
+            ( buildTree lengths 0 hlit
+            , buildTree lengths hlit hdist
+            )
+    in
+    BitReader.exactly hclen (BitReader.readBits 3 0)
+        |> BitReader.andThen (decodeTreeLengths hlit hdist hclen)
+        |> BitReader.map buildTrees
+
+
+emptyInitialLengths =
+    Array.repeat (288 + 32) 0
+
+
+decodeTreeLengths : Int -> Int -> Int -> List Int -> BitReader (Array Int)
+decodeTreeLengths hlit hdist hclen codeLengths =
+    let
+        clcs =
+            Array.toList (Array.slice 0 hclen clcIndices)
+
+        initialLengths =
+            let
+                go xs ys accum =
+                    case xs of
+                        [] ->
+                            accum
+
+                        index :: restIndex ->
+                            case ys of
+                                [] ->
+                                    accum
+
+                                codeLength :: restCodeLength ->
+                                    go restIndex restCodeLength (Array.set index codeLength accum)
+            in
+            go clcs codeLengths emptyInitialLengths
+
+        -- List.map2 Tuple.pair clcs codeLengths |> List.foldl (\( index, codeLength ) -> Array.set index codeLength) ()
+        codeTree =
+            buildTree initialLengths 0 19
+    in
+    BitReader.loop ( 0, initialLengths ) (decodeDynamicTreeLength codeTree hlit hdist)
 
 
 decodeDynamicTreeLength : Tree -> Int -> Int -> ( Int, Array Int ) -> BitReader (Step ( Int, Array Int ) (Array Int))
@@ -318,9 +338,20 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, lengths ) =
     let
         copySegment : Int -> Int -> Step ( Int, Array Int ) a
         copySegment value length =
+            let
+                end =
+                    i + length
+
+                go j accum =
+                    if j < end then
+                        go (j + 1) (Array.set j value accum)
+
+                    else
+                        accum
+            in
             Loop
                 ( i + length
-                , List.foldl (\j -> Array.set j value) lengths (List.range i ((i + length) - 1))
+                , go i lengths
                 )
     in
     if i < hlit + hdist then

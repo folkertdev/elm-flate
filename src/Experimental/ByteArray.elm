@@ -179,6 +179,19 @@ copyToBackInternal startIndex size array finalSize =
     if size <= 0 then
         ByteArray array finalSize
 
+    else if startIndex + 4 >= ((Array.length array - 1) * 4 + finalSize) then
+        -- the slow version
+        case get startIndex (ByteArray array finalSize) of
+            Nothing ->
+                ByteArray array finalSize
+
+            Just value ->
+                let
+                    (ByteArray newArray newFinalSize) =
+                        push value (ByteArray array finalSize)
+                in
+                copyToBackInternal (startIndex + 1) (size - 1) newArray newFinalSize
+
     else
         case Array.get internalIndex array of
             Nothing ->
