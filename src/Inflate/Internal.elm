@@ -7,6 +7,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Step(..))
 import Bytes.Encode as Encode
 import Inflate.BitReader as BitReader exposing (BitReader(..))
+import List.Extra
 
 
 inflate : Bytes -> Result String Bytes
@@ -74,14 +75,12 @@ uncompressHelp output =
 
 
 type alias HuffmanTable =
-    { bits : Array Int, base : Array Int }
+    Array { bits : Int, base : Int }
 
 
 readHuffmanTable : Int -> HuffmanTable -> Maybe { bits : Int, base : Int }
 readHuffmanTable index table =
-    Maybe.map2 (\x y -> { bits = x, base = y })
-        (Array.get index table.bits)
-        (Array.get index table.base)
+    Array.get index table
 
 
 
@@ -103,14 +102,14 @@ readHuffmanTable index table =
 
 
 type alias Tree =
-    { table : Array Int, trans : Array Int }
+    { table : List Int, trans : Array Int }
 
 
 buildBitsBase : Int -> Int -> HuffmanTable
 buildBitsBase delta first =
     let
         folder bit ( sum, accum ) =
-            ( sum + Bitwise.shiftLeftBy bit 1, Array.push sum accum )
+            ( sum + Bitwise.shiftLeftBy bit 1, Array.push { bits = bit, base = sum } accum )
 
         initializer i =
             if i < delta then
@@ -126,16 +125,14 @@ buildBitsBase delta first =
             Array.foldl folder ( first, Array.empty ) bits
                 |> Tuple.second
     in
-    { bits = bits
-    , base = base
-    }
+    base
 
 
 hardcodedLengthTable : HuffmanTable
 hardcodedLengthTable =
     buildBitsBase 4 3
         -- fix a special case
-        |> (\{ bits, base } -> { bits = Array.set 28 0 bits, base = Array.set 28 258 base })
+        |> Array.set 28 { bits = 0, base = 258 }
 
 
 hardcodedDistanceTable : HuffmanTable
@@ -145,7 +142,7 @@ hardcodedDistanceTable =
 
 sltree : Tree
 sltree =
-    { table = Array.fromList [ 0, 0, 0, 0, 0, 0, 0, 24, 152, 112, 0, 0, 0, 0, 0, 0 ]
+    { table = [ 0, 0, 0, 0, 0, 0, 0, 24, 152, 112, 0, 0, 0, 0, 0, 0 ]
     , trans =
         Array.fromList
             [ 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 280, 281, 282, 283, 284, 285, 286, 287, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255 ]
@@ -154,7 +151,7 @@ sltree =
 
 sdtree : Tree
 sdtree =
-    { table = Array.fromList [ 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
+    { table = [ 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
     , trans = Array.append (Array.fromList [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 ]) (Array.repeat (288 - 32) 0)
     }
 
@@ -202,7 +199,7 @@ buildTree lengths offset num =
         { translation } =
             List.foldl helper { translation = Array.repeat num 0, offsets = offsets } (List.range 0 (num - 1))
     in
-    { table = table, trans = translation }
+    { table = Array.toList table, trans = translation }
 
 
 update : Int -> (a -> a) -> Array a -> Array a
@@ -224,51 +221,57 @@ unsafeGet i a =
             v
 
 
-decodeSymbolInnerLoop tree cur tag len sum =
-    let
-        newCur =
-            2 * cur + Bitwise.and tag 1
-
-        newTag =
-            Bitwise.shiftRightZfBy 1 tag
-
-        newLen =
-            len + 1
-
-        value =
-            unsafeGet newLen tree.table
-
-        newSum =
-            sum + value
-
-        newerCur =
-            newCur - value
-    in
-    if newerCur >= 0 then
-        decodeSymbolInnerLoop tree newerCur newTag newLen newSum
-
-    else
-        -- ( ( newerCur, newTag ), newLen, newSum )
-        { cur = newerCur, tag = newTag, len = newLen, sum = newSum }
-
-
-decodeSymbol : Tree -> BitReader Int
-decodeSymbol tree =
+decodeSymbol : List Int -> Tree -> BitReader Int
+decodeSymbol table tree =
     BitReader <|
         \state ->
-            case BitReader.fillWindow state of
+            case
+                if state.bitsAvailable < 16 then
+                    BitReader.readMoreBits state
+
+                else
+                    Ok state
+            of
                 Err e ->
                     Err e
 
                 Ok d ->
                     let
-                        { cur, tag, len, sum } =
-                            decodeSymbolInnerLoop tree 0 d.tag 0 0
-
-                        result =
-                            unsafeGet (sum + cur) tree.trans
+                        { cur, tag, bitsAvailable, sum } =
+                            decodeSymbolInnerLoop table 0 d.tag d.bitsAvailable 0
                     in
-                    Ok ( result, { tag = tag, bitsAvailable = d.bitsAvailable - len, buffer = d.buffer } )
+                    case Array.get (sum + cur) tree.trans of
+                        Nothing ->
+                            Err "Index into trans tree out of bounds"
+
+                        Just result ->
+                            Ok ( result, { tag = tag, bitsAvailable = bitsAvailable, buffer = d.buffer, reserveAvailable = d.reserveAvailable, reserve = d.reserve } )
+
+
+decodeSymbolInnerLoop table cur tag bitsAvailable sum =
+    let
+        newTag =
+            Bitwise.shiftRightZfBy 1 tag
+    in
+    case table of
+        [] ->
+            -- unreachable
+            { cur = cur, tag = tag, bitsAvailable = bitsAvailable, sum = sum }
+
+        value :: rest ->
+            let
+                newSum =
+                    sum + value
+
+                newerCur =
+                    (Bitwise.shiftLeftBy 1 cur + Bitwise.and tag 1) - value
+            in
+            if newerCur >= 0 then
+                decodeSymbolInnerLoop rest newerCur newTag (bitsAvailable - 1) newSum
+
+            else
+                -- ( ( newerCur, newTag ), newLen, newSum )
+                { cur = newerCur, tag = newTag, bitsAvailable = bitsAvailable - 1, sum = newSum }
 
 
 
@@ -321,7 +324,12 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, lengths ) =
                 )
     in
     if i < hlit + hdist then
-        decodeSymbol codeTree
+        let
+            table =
+                List.tail codeTree.table
+                    |> Maybe.withDefault []
+        in
+        decodeSymbol table codeTree
             |> BitReader.andThen
                 (\sym ->
                     case sym of
@@ -371,7 +379,12 @@ inflateBlockDataHelp trees ( outputLength, output ) =
         dt =
             trees.distance
     in
-    decodeSymbol lt
+    let
+        table =
+            List.tail lt.table
+                |> Maybe.withDefault []
+    in
+    decodeSymbol table lt
         |> BitReader.andThen
             (\symbol ->
                 -- check for end of block
@@ -382,70 +395,112 @@ inflateBlockDataHelp trees ( outputLength, output ) =
                     BitReader.succeed (Loop ( outputLength + 1, Array.push symbol output ))
 
                 else
+                    BitReader.map2 (\length offset -> Loop ( outputLength + length, copyLoop offset length offset outputLength output ))
+                        (decodeLength symbol)
+                        (decodeOffset outputLength dt)
+            )
+
+
+copyLoop : Int -> Int -> Int -> Int -> Array a -> Array a
+copyLoop offs length i destLen arr =
+    if (i - (offs + length)) < 0 then
+        copyLoop offs
+            length
+            (i + 1)
+            (destLen + 1)
+            (let
+                source =
+                    i
+
+                destination =
+                    destLen
+             in
+             case Array.get source arr of
+                Nothing ->
+                    arr
+
+                Just value ->
                     let
-                        copy : Int -> Int -> Array a -> Array a
-                        copy source destination arr =
-                            case Array.get source arr of
-                                Nothing ->
-                                    arr
-
-                                Just value ->
-                                    if destination < Array.length arr then
-                                        Array.set destination value arr
-
-                                    else if destination == Array.length arr then
-                                        Array.push value arr
-
-                                    else
-                                        arr
-
-                        loop : Int -> Int -> Int -> Int -> Array a -> Array a
-                        loop offs length i destLen arr =
-                            if i < offs + length then
-                                loop offs length (i + 1) (destLen + 1) (copy i destLen arr)
-
-                            else
-                                arr
-
-                        decodeLength : BitReader Int
-                        decodeLength =
-                            case readHuffmanTable (symbol - 257) hardcodedLengthTable of
-                                Nothing ->
-                                    BitReader.error
-                                        ("index out of bounds in hardcodedLengthTable: requested index "
-                                            ++ String.fromInt (symbol - 257)
-                                            ++ "but hardcodedLengthTable has length "
-                                            ++ String.fromInt (Array.length hardcodedLengthTable.bits)
-                                        )
-
-                                Just entry ->
-                                    BitReader.readBits entry.bits entry.base
-
-                        decodeOffset : BitReader Int
-                        decodeOffset =
-                            decodeSymbol dt
-                                |> BitReader.andThen
-                                    (\distance ->
-                                        case readHuffmanTable distance hardcodedDistanceTable of
-                                            Nothing ->
-                                                BitReader.error
-                                                    ("index out of bounds in hardcodedDistanceTable: requested index "
-                                                        ++ String.fromInt distance
-                                                        ++ "but hardcodedLengthTable has length "
-                                                        ++ String.fromInt (Array.length hardcodedDistanceTable.bits)
-                                                    )
-
-                                            Just entry ->
-                                                BitReader.readBits entry.bits entry.base
-                                                    {-
-                                                       TODO is this correct?
-                                                       We know that the blocks are independent https://www.w3.org/Graphics/PNG/RFC-1951
-                                                       But the offset is probably still given for the whole (across blocks)
-                                                    -}
-                                                    |> BitReader.map (\v -> ((outputLength + Array.length output) - v) - outputLength)
-                                    )
+                        size =
+                            Array.length arr
                     in
-                    BitReader.map2 (\length offset -> Loop ( outputLength + length, loop offset length offset outputLength output )) decodeLength decodeOffset
+                    if (destination - size) < 0 then
+                        Array.set destination value arr
+
+                    else if (destination - size) == 0 then
+                        Array.push value arr
+
+                    else
+                        arr
+            )
+
+    else
+        arr
+
+
+copy : Int -> Int -> Array a -> Array a
+copy source destination arr =
+    case Array.get source arr of
+        Nothing ->
+            arr
+
+        Just value ->
+            let
+                size =
+                    Array.length arr
+            in
+            if (destination - size) < 0 then
+                Array.set destination value arr
+
+            else if (destination - size) == 0 then
+                Array.push value arr
+
+            else
+                arr
+
+
+decodeLength : Int -> BitReader Int
+decodeLength symbol =
+    case readHuffmanTable (symbol - 257) hardcodedLengthTable of
+        Nothing ->
+            BitReader.error
+                ("index out of bounds in hardcodedLengthTable: requested index "
+                    ++ String.fromInt (symbol - 257)
+                    ++ "but hardcodedLengthTable has length "
+                    ++ String.fromInt (Array.length hardcodedLengthTable)
+                )
+
+        Just entry ->
+            BitReader.readBits entry.bits entry.base
+
+
+decodeOffset : Int -> Tree -> BitReader Int
+decodeOffset outputLength dt =
+    let
+        table_ =
+            List.tail dt.table
+                |> Maybe.withDefault []
+    in
+    decodeSymbol table_ dt
+        |> BitReader.andThen
+            (\distance ->
+                case readHuffmanTable distance hardcodedDistanceTable of
+                    Nothing ->
+                        BitReader.error
+                            ("index out of bounds in hardcodedDistanceTable: requested index "
+                                ++ String.fromInt distance
+                                ++ "but hardcodedLengthTable has length "
+                                ++ String.fromInt (Array.length hardcodedDistanceTable)
+                            )
+
+                    Just entry ->
+                        BitReader.readBits entry.bits entry.base
+                            {-
+                               TODO is this correct?
+                               We know that the blocks are independent https://www.w3.org/Graphics/PNG/RFC-1951
+                               But the offset is probably still given for the whole (across blocks)
+                            -}
+                            |> BitReader.map (\v -> outputLength - v)
             )
 
 
@@ -456,7 +511,11 @@ inflateBlockDataHelp trees ( outputLength, output ) =
 inflateUncompressedBlock : BitReader Bytes
 inflateUncompressedBlock =
     BitReader
-        (\state ->
+        (\state_ ->
+            let
+                state =
+                    BitReader.flush state_
+            in
             case Decode.decode (uncompressedBlockDecoder (Bytes.width state.buffer)) state.buffer of
                 Nothing ->
                     Err "inflateUncompressedBlock: ran out of bounds"

@@ -1,4 +1,4 @@
-module Inflate.BitReader exposing (BitReader(..), State, Tree, andMap, andThen, chunksOf, decode, embed, error, exactly, exactlyBytes, fillWindow, getBit, loop, map, map2, map3, map4, readBits, runDecoder, shiftOffTag, shiftOntoTag, succeed)
+module Inflate.BitReader exposing (BitReader(..), State, andMap, andThen, decode, embed, error, exactly, flush, getBit, loop, map, map2, map3, map4, readBits, readMoreBits, runDecoder, succeed)
 
 import Array exposing (Array)
 import Bitwise
@@ -7,12 +7,146 @@ import Bytes.Decode as Decode exposing (Decoder, Step(..))
 import Bytes.Encode as Encode
 
 
-type alias Tree =
-    { table : Array Int, trans : Array Int }
+{-|
 
+  - tag is where we read from
+  - bitsAvailable is the number of unread bits on the tag
+  - reserve is where we write to from the buffer, to always be able to read a unsignedInt32
+  - reserveAvailable is the number of unread bits on the reserve
 
+-}
 type alias State =
-    { tag : Int, bitsAvailable : Int, buffer : Bytes }
+    { tag : Int
+    , bitsAvailable : Int
+    , reserve : Int
+    , reserveAvailable : Int
+    , buffer : Bytes
+    }
+
+
+readMoreBits : State -> Result String State
+readMoreBits state =
+    let
+        freeSpaceOnTag =
+            32 - state.bitsAvailable
+    in
+    if freeSpaceOnTag <= state.reserveAvailable && state.reserveAvailable > 0 then
+        Ok (moveFromReserve freeSpaceOnTag state)
+
+    else if Bytes.width state.buffer == 0 then
+        Ok (moveFromReserve state.reserveAvailable state)
+
+    else
+        let
+            ( width, additionallyAvailable, decoder ) =
+                case Bytes.width state.buffer of
+                    0 ->
+                        ( 0, 0, Decode.succeed 0 )
+
+                    1 ->
+                        ( 1, 8, Decode.unsignedInt8 )
+
+                    2 ->
+                        ( 2, 16, Decode.unsignedInt16 LE )
+
+                    3 ->
+                        ( 3, 24, unsignedInt24 LE )
+
+                    _ ->
+                        ( 4, 32, Decode.unsignedInt32 LE )
+
+            state1 =
+                moveFromReserve state.reserveAvailable state
+        in
+        case runDecoder width decoder state1 of
+            Err e ->
+                Err e
+
+            Ok ( newReserve, newBuffer ) ->
+                readMoreBits
+                    { tag = state1.tag
+                    , bitsAvailable = state1.bitsAvailable
+                    , reserve = newReserve
+                    , reserveAvailable = additionallyAvailable
+                    , buffer = newBuffer
+                    }
+
+
+moveFromReserve : Int -> State -> State
+moveFromReserve nbits state =
+    let
+        masked =
+            if nbits == 32 then
+                state.reserve
+                    |> Bitwise.shiftLeftBy state.bitsAvailable
+
+            else
+                Bitwise.and (Bitwise.shiftLeftBy nbits 1 - 1) state.reserve
+                    |> Bitwise.shiftLeftBy state.bitsAvailable
+    in
+    { tag = Bitwise.or masked state.tag
+    , bitsAvailable = state.bitsAvailable + nbits
+    , reserve = Bitwise.shiftRightZfBy nbits state.reserve
+    , reserveAvailable = state.reserveAvailable - nbits
+    , buffer = state.buffer
+    }
+
+
+{-| Flush read bits back into the buffer
+-}
+flush : State -> State
+flush state =
+    { buffer = flushHelp state
+    , tag = 0
+    , bitsAvailable = 0
+    , reserve = 0
+    , reserveAvailable = 0
+    }
+
+
+flushHelp : State -> Bytes
+flushHelp state0 =
+    let
+        availableSpace =
+            32 - state0.bitsAvailable
+
+        state =
+            moveFromReserve (min availableSpace state0.reserveAvailable) state0
+
+        tagEncoder =
+            if state.bitsAvailable > 24 then
+                [ Encode.unsignedInt32 LE state.tag ]
+
+            else if state.bitsAvailable > 16 then
+                [ Encode.unsignedInt16 LE state.tag, Encode.unsignedInt8 (Bitwise.shiftRightBy 16 state.tag) ]
+
+            else if state.bitsAvailable > 8 then
+                [ Encode.unsignedInt16 LE state.tag ]
+
+            else if state.bitsAvailable > 1 then
+                [ Encode.unsignedInt8 state.tag ]
+
+            else
+                []
+
+        reserveEncoder =
+            if state.reserveAvailable > 24 then
+                [ Encode.unsignedInt32 LE state.reserve ]
+
+            else if state.reserveAvailable > 16 then
+                [ Encode.unsignedInt16 LE state.reserve, Encode.unsignedInt8 (Bitwise.shiftRightBy 16 state.reserve) ]
+
+            else if state.reserveAvailable > 8 then
+                [ Encode.unsignedInt16 LE state.reserve ]
+
+            else if state.reserveAvailable > 1 then
+                [ Encode.unsignedInt8 state.reserve ]
+
+            else
+                []
+    in
+    Encode.sequence (tagEncoder ++ reserveEncoder ++ [ Encode.bytes state.buffer ])
+        |> Encode.encode
 
 
 decode : Bytes -> BitReader a -> Result String a
@@ -22,76 +156,16 @@ decode bytes (BitReader reader) =
             { buffer = bytes
             , tag = 0
             , bitsAvailable = 0
+            , reserve = 0
+            , reserveAvailable = 0
             }
     in
-    reader initialState
-        |> Result.map Tuple.first
+    case reader initialState of
+        Ok ( value, _ ) ->
+            Ok value
 
-
-exactlyBytes : Int -> Decoder a -> Decoder (List a)
-exactlyBytes tableCount decoder =
-    let
-        helper ( n, xs ) =
-            if n <= 0 then
-                Decode.succeed (Done (List.reverse xs))
-
-            else
-                Decode.map (\x -> Loop ( n - 1, x :: xs )) decoder
-    in
-    Decode.loop ( tableCount, [] ) helper
-
-
-exactly : Int -> BitReader a -> BitReader (List a)
-exactly tableCount decoder =
-    let
-        helper ( n, xs ) =
-            if n <= 0 then
-                succeed (Done (List.reverse xs))
-
-            else
-                map (\x -> Loop ( n - 1, x :: xs )) decoder
-    in
-    loop ( tableCount, [] ) helper
-
-
-
-{-
-   exactly : Int -> Decoder a -> Decoder (List a)
-   exactly tableCount decoder =
-       let
-           helper ( n, xs ) =
-               if n <= 0 then
-                   Decode.succeed (Done (List.reverse xs))
-
-               else
-                   Decode.map (\x -> Loop ( n - 1, x :: xs )) decoder
-       in
-       Decode.loop ( tableCount, [] ) helper
--}
-
-
-chunksOf : Int -> Bytes -> List Bytes
-chunksOf bytesPerChunk buffer =
-    let
-        fullChunks =
-            Bytes.width buffer // bytesPerChunk
-
-        finalChunkSize =
-            Bytes.width buffer |> modBy bytesPerChunk
-
-        boundaries =
-            List.map (\i -> i * bytesPerChunk) (List.range 0 (Bytes.width buffer // bytesPerChunk)) ++ [ Bytes.width buffer ]
-
-        decoder =
-            exactlyBytes fullChunks (Decode.bytes bytesPerChunk)
-                |> Decode.andThen
-                    (\full ->
-                        Decode.bytes finalChunkSize
-                            |> Decode.map (\final -> full ++ [ final ])
-                    )
-    in
-    Decode.decode decoder buffer
-        |> Maybe.withDefault []
+        Err e ->
+            Err e
 
 
 type BitReader b
@@ -205,98 +279,47 @@ readBits numberOfBits base =
                 Ok ( base, state )
 
             else
-                case fillWindow state of
+                case
+                    if state.bitsAvailable < numberOfBits then
+                        readMoreBits state
+
+                    else
+                        Ok state
+                of
                     Err e ->
                         Err e
 
                     Ok d ->
                         let
-                            ( val, newTag ) =
-                                shiftOffTag d.tag numberOfBits
+                            val =
+                                Bitwise.and d.tag (Bitwise.shiftRightZfBy (16 - numberOfBits) 0xFFFF)
+
+                            newTag =
+                                Bitwise.shiftRightZfBy numberOfBits d.tag
                         in
-                        Ok ( val + base, { tag = newTag, bitsAvailable = d.bitsAvailable - numberOfBits, buffer = d.buffer } )
+                        Ok
+                            ( val + base
+                            , { tag = newTag
+                              , bitsAvailable = d.bitsAvailable - numberOfBits
+                              , reserve = d.reserve
+                              , reserveAvailable = d.reserveAvailable
+                              , buffer = d.buffer
+                              }
+                            )
 
 
 getBit : BitReader Int
 getBit =
-    BitReader <|
-        \state ->
-            if state.bitsAvailable == 0 then
-                -- must read new byte
-                case runDecoder 1 Decode.unsignedInt8 state of
-                    Ok ( tag, newBuffer ) ->
-                        let
-                            bit =
-                                Bitwise.and tag 1
-
-                            newTag =
-                                Bitwise.shiftRightZfBy 1 tag
-                        in
-                        Ok ( bit, { tag = newTag, bitsAvailable = 7, buffer = newBuffer } )
-
-                    Err e ->
-                        Err ("getBit > " ++ e)
-
-            else
-                let
-                    bit =
-                        Bitwise.and state.tag 1
-
-                    newTag =
-                        Bitwise.shiftRightZfBy 1 state.tag
-                in
-                Ok ( bit, { buffer = state.buffer, tag = newTag, bitsAvailable = state.bitsAvailable - 1 } )
+    readBits 1 0
 
 
-shiftOntoTag tag value bitsAvailable =
-    Bitwise.or tag (Bitwise.shiftLeftBy bitsAvailable value)
+unsignedInt24 endianness =
+    case endianness of
+        LE ->
+            Decode.map2 (\b2 b1 -> Bitwise.or (Bitwise.shiftLeftBy 16 b1) b2) (Decode.unsignedInt16 endianness) Decode.unsignedInt8
 
-
-shiftOffTag tag numberOfBits =
-    let
-        val =
-            Bitwise.and tag (Bitwise.shiftRightZfBy (16 - numberOfBits) 0xFFFF)
-
-        newTag =
-            Bitwise.shiftRightZfBy numberOfBits tag
-    in
-    ( val, newTag )
-
-
-fillWindow : State -> Result String State
-fillWindow state =
-    let
-        unsignedInt24 endianness =
-            Decode.map2 (\b1 b2 -> shiftOntoTag b1 b2 16)
-                (Decode.unsignedInt16 endianness)
-                Decode.unsignedInt8
-
-        helper width decoder =
-            case runDecoder width decoder state of
-                Err e ->
-                    Ok state
-
-                Ok ( byte, newBuffer ) ->
-                    Ok
-                        { tag = shiftOntoTag state.tag byte state.bitsAvailable
-                        , bitsAvailable = state.bitsAvailable + (width * 8)
-                        , buffer = newBuffer
-                        }
-    in
-    if state.bitsAvailable == 0 then
-        helper 4 (Decode.unsignedInt32 LE)
-
-    else if state.bitsAvailable <= 8 then
-        helper 3 (unsignedInt24 LE)
-
-    else if state.bitsAvailable <= 16 then
-        helper 2 (Decode.unsignedInt16 LE)
-
-    else if state.bitsAvailable < 24 then
-        helper 1 Decode.unsignedInt8
-
-    else
-        Ok state
+        BE ->
+            Decode.map2 (\b1 b2 -> Bitwise.or (Bitwise.shiftLeftBy 16 b1) b2) (Decode.unsignedInt16 endianness) Decode.unsignedInt8
 
 
 runDecoder : Int -> Decode.Decoder a -> State -> Result String ( a, Bytes )
@@ -306,8 +329,8 @@ runDecoder width valueDecoder state =
             Decode.map2 Tuple.pair valueDecoder (Decode.bytes (Bytes.width state.buffer - width))
     in
     case Decode.decode decoder state.buffer of
-        Just ( byte, newBuffer ) ->
-            Ok ( byte, newBuffer )
+        Just value ->
+            Ok value
 
         Nothing ->
             Err "BitReader.runDecoder: Unexpected end of Bytes"
@@ -323,11 +346,8 @@ loopHelp accum callback state =
     let
         (BitReader decoder) =
             callback accum
-
-        step =
-            decoder state
     in
-    case step of
+    case decoder state of
         Err e ->
             Err e
 
@@ -336,3 +356,16 @@ loopHelp accum callback state =
 
         Ok ( Done result, newState ) ->
             Ok ( result, newState )
+
+
+exactly : Int -> BitReader a -> BitReader (List a)
+exactly tableCount decoder =
+    let
+        helper ( n, xs ) =
+            if n <= 0 then
+                succeed (Done (List.reverse xs))
+
+            else
+                map (\x -> Loop ( n - 1, x :: xs )) decoder
+    in
+    loop ( tableCount, [] ) helper
