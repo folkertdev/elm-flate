@@ -1,11 +1,12 @@
 module TestInflate exposing (suite)
 
-import Array
+import Array exposing (Array)
 import Bitwise
 import ByteArray
 import Bytes exposing (Bytes)
 import Bytes.Decode as Decode
 import Bytes.Encode as Encode
+import Dict
 import Expect exposing (Expectation, FloatingPointTolerance(..))
 import Flate as External
 import Fuzz exposing (Fuzzer, int, list, string)
@@ -18,14 +19,20 @@ import TestData.Lorem as Lorem
 
 
 mySuite =
-    test "foo dynamic" <|
-        \_ ->
-            [ 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06 ]
-                |> Array.fromList
-                |> ByteArray.toBytes
-                |> External.inflate
-                |> Maybe.andThen (Decode.decode (Decode.string 3))
-                |> Expect.equal (Just "foo")
+    let
+        setup name input output =
+            test name <|
+                \_ ->
+                    case input |> Array.fromList |> ByteArray.toBytes |> ZLib.inflate of
+                        Ok v ->
+                            Just v
+                                |> Maybe.andThen (\b -> Decode.decode (Decode.string 3) b)
+                                |> Expect.equal (Just output)
+
+                        Err e ->
+                            Expect.fail (Debug.toString e)
+    in
+    setup "zlib foo dynamic" [ 0x78, 0x9C, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x02, 0x82, 0x01, 0x45 ] "foo"
 
 
 exactly n decoder =
@@ -51,6 +58,7 @@ suite =
         -- , lorem
         , example
         , various
+        , buildTable
         ]
 
 
@@ -138,24 +146,27 @@ various =
             , setup "zlib foo fixed" [ 0x78, 0x5E, 0x4B, 0xCB, 0xCF, 0x07, 0x00, 0x02, 0x82, 0x01, 0x45 ] "foo"
             , setup "zlib foo dynamic" [ 0x78, 0x9C, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x02, 0x82, 0x01, 0x45 ] "foo"
             ]
-        , describe "gzip foo" <|
-            let
-                setup name hexes =
-                    test name <|
-                        \_ ->
-                            hexes
-                                |> Array.fromList
-                                |> ByteArray.toBytes
-                                |> GZip.inflate
-                                |> Maybe.andThen (Decode.decode (Decode.string 3))
-                                |> Expect.equal (Just "foo")
-            in
-            [ setup "dynamic" [ 0x1F, 0x8B, 0x08, 0x00, 0xED, 0xC1, 0x1B, 0x5D, 0x00, 0xFF, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
-            , setup "dynamic with fname" [ 0x1F, 0x8B, 0x08, 0x08, 0x5F, 0xCA, 0x1B, 0x5D, 0x00, 0xFF, 0x66, 0x6F, 0x6F, 0x2E, 0x74, 0x78, 0x74, 0x00, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
-            , setup "dynamic with fname and fcomment" [ 0x1F, 0x8B, 0x08, 0x08, 0x8D, 0xCA, 0x1B, 0x5D, 0x00, 0xFF, 0x66, 0x6F, 0x6F, 0x2E, 0x74, 0x78, 0x74, 0x00, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
-            , setup "dynamic with fname and fcomment and checksum" [ 0x1F, 0x8B, 0x08, 0x0A, 0xB5, 0x98, 0x1C, 0x5D, 0x00, 0xFF, 0x62, 0x61, 0x72, 0x00, 0xBC, 0x0B, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
-            , setup "dynamic with checksum" [ 0x1F, 0x8B, 0x08, 0x02, 0x62, 0xD8, 0x1B, 0x5D, 0x00, 0xFF, 0x24, 0x3E, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
-            ]
+
+        {-
+           , describe "gzip foo" <|
+               let
+                   setup name hexes =
+                       test name <|
+                           \_ ->
+                               hexes
+                                   |> Array.fromList
+                                   |> ByteArray.toBytes
+                                   |> GZip.inflate
+                                   |> Maybe.andThen (Decode.decode (Decode.string 3))
+                                   |> Expect.equal (Just "foo")
+               in
+               [ setup "dynamic" [ 0x1F, 0x8B, 0x08, 0x00, 0xED, 0xC1, 0x1B, 0x5D, 0x00, 0xFF, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
+               , setup "dynamic with fname" [ 0x1F, 0x8B, 0x08, 0x08, 0x5F, 0xCA, 0x1B, 0x5D, 0x00, 0xFF, 0x66, 0x6F, 0x6F, 0x2E, 0x74, 0x78, 0x74, 0x00, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
+               , setup "dynamic with fname and fcomment" [ 0x1F, 0x8B, 0x08, 0x08, 0x8D, 0xCA, 0x1B, 0x5D, 0x00, 0xFF, 0x66, 0x6F, 0x6F, 0x2E, 0x74, 0x78, 0x74, 0x00, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
+               , setup "dynamic with fname and fcomment and checksum" [ 0x1F, 0x8B, 0x08, 0x0A, 0xB5, 0x98, 0x1C, 0x5D, 0x00, 0xFF, 0x62, 0x61, 0x72, 0x00, 0xBC, 0x0B, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
+               , setup "dynamic with checksum" [ 0x1F, 0x8B, 0x08, 0x02, 0x62, 0xD8, 0x1B, 0x5D, 0x00, 0xFF, 0x24, 0x3E, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x21, 0x65, 0x73, 0x8C, 0x03, 0x00, 0x00, 0x00 ]
+               ]
+        -}
         ]
 
 
@@ -395,3 +406,83 @@ lorem =
                     |> Result.map decode
                     |> Expect.equal (Ok (Just Lorem.uncompressed))
         ]
+
+
+buildTable =
+    let
+        lengths =
+            Array.fromList [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
+
+        num =
+            1
+
+        offset =
+            257
+
+        update : Int -> (a -> a) -> Array a -> Array a
+        update index f array =
+            case Array.get index array of
+                Nothing ->
+                    array
+
+                Just v ->
+                    Array.set index (f v) array
+
+        withArray _ =
+            Array.slice offset (num + offset) lengths
+                |> Array.foldl
+                    (\i arr ->
+                        if i < 16 && i /= 0 then
+                            update i (\v -> v + 1) arr
+
+                        else
+                            arr
+                    )
+                    (Array.repeat 16 0)
+                |> Array.set 0 0
+                |> Array.toList
+
+        withDict _ =
+            Array.slice offset (num + offset) lengths
+                |> Array.foldl
+                    (\i dict ->
+                        if i < 16 && i /= 0 then
+                            Dict.update i
+                                (\maybeValue ->
+                                    case maybeValue of
+                                        Just v ->
+                                            Just (v + 1)
+
+                                        Nothing ->
+                                            Just 1
+                                )
+                                dict
+
+                        else
+                            dict
+                    )
+                    Dict.empty
+                |> (\dict -> Dict.foldr folder ( 15, [] ) dict)
+                |> (\( current, list ) ->
+                        let
+                            ( _, result ) =
+                                go 0 0 current list
+                        in
+                        result
+                   )
+
+        go : Int -> Int -> Int -> List Int -> ( Int, List Int )
+        go key value n accum =
+            if key < n then
+                go key value (n - 1) (0 :: accum)
+
+            else
+                ( key, value :: accum )
+
+        folder key value ( current, list ) =
+            go key value current list
+    in
+    test "build table with dict" <|
+        \_ ->
+            withDict ()
+                |> Expect.equal (withArray ())

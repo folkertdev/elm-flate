@@ -17,36 +17,44 @@ toList barray =
 
 
 type ByteArray
-    = ByteArray (Array Int) Int
+    = ByteArray (Array Int) Int Int
 
 
 empty : ByteArray
 empty =
-    ByteArray Array.empty 0
+    ByteArray Array.empty 0 0
 
 
-length (ByteArray array finalSize) =
+length (ByteArray array finalSize finalBytes) =
     case Array.length array * 4 of
         0 ->
-            0
+            finalSize
 
         l ->
-            l - (4 - finalSize)
+            l + finalSize
 
 
 get : Int -> ByteArray -> Maybe Int
-get index (ByteArray array finalSize) =
+get index (ByteArray array finalSize finalBytes) =
     -- @performance is caching the array length better?
+    let
+        offset =
+            index |> remainderBy 4
+    in
     if index >= Array.length array * 4 + finalSize then
         Nothing
+
+    else if index >= Array.length array * 4 then
+        -- in the final int32
+        finalBytes
+            |> Bitwise.shiftRightZfBy (8 * (3 - offset))
+            |> Bitwise.and 0xFF
+            |> Just
 
     else
         let
             internalIndex =
                 index // 4
-
-            offset =
-                index |> remainderBy 4
         in
         case Array.get internalIndex array of
             Nothing ->
@@ -63,34 +71,36 @@ get index (ByteArray array finalSize) =
 -- Set
 
 
-mask1 =
-    0xFF
-
-
-mask2 =
-    0xFF00
-
-
-mask3 =
-    0x00FF0000
-
-
-mask4 =
-    0xFF000000
-
-
 set : Int -> Int -> ByteArray -> ByteArray
-set index value ((ByteArray array finalSize) as input) =
+set index value ((ByteArray array finalSize finalBytes) as input) =
+    let
+        offset =
+            index |> remainderBy 4
+    in
     if index >= Array.length array * 4 + finalSize then
         input
+
+    else if index > Array.length array * 4 then
+        let
+            mask =
+                Bitwise.shiftRightZfBy (offset * 8) 0xFF000000
+
+            cleared =
+                Bitwise.and (Bitwise.complement mask) finalBytes
+                    |> Bitwise.shiftRightZfBy 0
+
+            shifted =
+                Bitwise.shiftLeftBy ((3 - offset) * 8) (Bitwise.and 0xFF value)
+
+            new =
+                Bitwise.or cleared shifted
+        in
+        ByteArray array finalSize new
 
     else
         let
             internalIndex =
                 index // 4
-
-            offset =
-                index |> remainderBy 4
         in
         case Array.get internalIndex array of
             Nothing ->
@@ -99,18 +109,7 @@ set index value ((ByteArray array finalSize) as input) =
             Just current ->
                 let
                     mask =
-                        case offset of
-                            0 ->
-                                mask4
-
-                            1 ->
-                                mask3
-
-                            2 ->
-                                mask2
-
-                            _ ->
-                                mask1
+                        Bitwise.shiftRightZfBy (offset * 8) 0xFF000000
 
                     cleared =
                         Bitwise.and (Bitwise.complement mask) current
@@ -122,12 +121,15 @@ set index value ((ByteArray array finalSize) as input) =
                     new =
                         Bitwise.or cleared shifted
                 in
-                ByteArray (Array.set internalIndex new array) finalSize
+                ByteArray (Array.set internalIndex new array) finalSize finalBytes
 
 
-push value ((ByteArray array finalSize) as input) =
-    if finalSize == 4 || Array.isEmpty array then
-        ByteArray (Array.push (Bitwise.shiftLeftBy 24 value) array) 1
+push value ((ByteArray array finalSize finalBytes) as input) =
+    if finalSize == 4 then
+        ByteArray (Array.push finalBytes array) 1 (Bitwise.shiftLeftBy 24 value)
+
+    else if finalSize == 0 then
+        ByteArray array 1 (Bitwise.shiftLeftBy 24 value)
 
     else
         let
@@ -137,38 +139,82 @@ push value ((ByteArray array finalSize) as input) =
             offset =
                 finalSize
         in
-        case Array.get internalIndex array of
-            Nothing ->
-                input
+        let
+            mask =
+                Bitwise.shiftRightZfBy (offset * 8) 0xFF000000
 
-            Just current ->
-                let
-                    mask =
-                        case offset of
-                            1 ->
-                                mask4
-
-                            2 ->
-                                mask3
-
-                            3 ->
-                                mask2
-
-                            _ ->
-                                mask1
-
-                    new =
-                        Bitwise.or (Bitwise.shiftLeftBy ((3 - offset) * 8) (Bitwise.and 0xFF value)) current
-                in
-                ByteArray (Array.set internalIndex new array) (finalSize + 1)
+            new =
+                Bitwise.or (Bitwise.shiftLeftBy ((3 - offset) * 8) (Bitwise.and 0xFF value)) finalBytes
+        in
+        ByteArray array (finalSize + 1) new
 
 
-copyToBack startIndex size (ByteArray array finalSize) =
-    copyToBackInternal startIndex size array finalSize
+pushMany : Int -> Int -> ByteArray -> ByteArray
+pushMany nbytes value_ ((ByteArray array finalSize finalBytes) as input) =
+    let
+        value =
+            if nbytes == 4 then
+                value_
+
+            else
+                Bitwise.and (Bitwise.shiftLeftBy (nbytes * 8) 1 - 1) value_
+    in
+    if nbytes == 0 then
+        input
+
+    else if finalSize == 4 then
+        ByteArray (Array.push finalBytes array) nbytes (Bitwise.shiftLeftBy ((4 - nbytes) * 8) value)
+
+    else if finalSize == 0 then
+        ByteArray array nbytes (Bitwise.shiftLeftBy ((4 - nbytes) * 8) value)
+
+    else
+        let
+            freeSpace =
+                4 - finalSize
+        in
+        if nbytes > freeSpace then
+            let
+                -- fill current final bytes completely, then push it and make new final bytes
+                bytesLeftOver =
+                    (finalSize + nbytes) - 4
+
+                -- shift off the bytes that don't fit
+                forFinal =
+                    Bitwise.shiftRightZfBy (bytesLeftOver * 8) value
+
+                newFinal =
+                    Bitwise.or finalBytes forFinal
+
+                amount =
+                    (8 - finalSize - nbytes) * 8
+
+                forNextFinal =
+                    Bitwise.and (Bitwise.shiftLeftBy (bytesLeftOver * 8) 1 - 1) value
+                        |> Bitwise.shiftLeftBy amount
+            in
+            ByteArray (Array.push newFinal array) (nbytes - freeSpace) forNextFinal
+
+        else
+            let
+                amount =
+                    (4 - (finalSize + nbytes)) * 8
+
+                forFinal =
+                    Bitwise.shiftLeftBy amount value
+
+                newFinal =
+                    Bitwise.or finalBytes forFinal
+            in
+            ByteArray array (finalSize + nbytes) newFinal
 
 
-copyToBackInternal : Int -> Int -> Array Int -> Int -> ByteArray
-copyToBackInternal startIndex size array finalSize =
+copyToBack startIndex size (ByteArray array finalSize finalBytes) =
+    copyToBackInternal startIndex size array finalSize finalBytes
+
+
+copyToBackInternal : Int -> Int -> Array Int -> Int -> Int -> ByteArray
+copyToBackInternal startIndex size array finalSize finalBytes =
     let
         internalIndex =
             startIndex // 4
@@ -177,170 +223,86 @@ copyToBackInternal startIndex size array finalSize =
             startIndex |> remainderBy 4
     in
     if size <= 0 then
-        ByteArray array finalSize
+        ByteArray array finalSize finalBytes
 
     else if startIndex + 4 >= ((Array.length array - 1) * 4 + finalSize) then
         -- the slow version
-        case get startIndex (ByteArray array finalSize) of
+        case get startIndex (ByteArray array finalSize finalBytes) of
             Nothing ->
-                ByteArray array finalSize
+                ByteArray array finalSize finalBytes
 
             Just value ->
                 let
-                    (ByteArray newArray newFinalSize) =
-                        push value (ByteArray array finalSize)
+                    (ByteArray newArray newFinalSize newFinalBytes) =
+                        push value (ByteArray array finalSize finalBytes)
                 in
-                copyToBackInternal (startIndex + 1) (size - 1) newArray newFinalSize
+                copyToBackInternal (startIndex + 1) (size - 1) newArray newFinalSize newFinalBytes
 
     else
         case Array.get internalIndex array of
             Nothing ->
-                ByteArray array finalSize
+                ByteArray array finalSize finalBytes
 
             Just value ->
-                -- easy case
-                if offset == 0 && finalSize == 4 && size >= 4 then
-                    -- yay, we can copy the whole int32 in one go!
-                    copyToBackInternal (startIndex + 4) (size - 4) (Array.push value array) finalSize
+                let
+                    maskedFront =
+                        Bitwise.shiftLeftBy (8 * offset) value
 
-                else if finalSize == 4 then
-                    -- must mask the read value, but can push instead of set
-                    let
-                        available =
-                            4 - offset
-
-                        canRead =
-                            if (available - size) < 0 then
-                                available
-
-                            else
-                                size
-
-                        mask =
-                            Bitwise.shiftRightZfBy ((4 - canRead) * 8) 0xFFFFFFFF
-
-                        shiftAmount =
-                            4 - (canRead + offset)
-
-                        byte =
-                            value
-                                |> Bitwise.shiftRightZfBy (shiftAmount * 8)
-                                |> Bitwise.and mask
-
-                        newByte =
-                            Bitwise.shiftLeftBy ((4 - canRead) * 8) byte
-
-                        newArray =
-                            Array.push newByte array
-                    in
-                    copyToBackInternal (startIndex + canRead)
-                        (size - canRead)
-                        newArray
-                        canRead
-
-                else
-                    -- ugh!
-                    let
-                        available =
-                            4 - offset
-
-                        canRead =
-                            -- min available size |> min (4 - finalSize)
+                    maskedBack =
+                        if 4 - offset > size then
                             let
-                                m1 =
-                                    if (available - size) < 0 then
-                                        available
+                                bytesWeHave =
+                                    (3 - offset) + 1
 
-                                    else
-                                        size
-
-                                m2 =
-                                    if m1 - (4 - finalSize) < 0 then
-                                        m1
-
-                                    else
-                                        4 - finalSize
+                                bytesWeNeedToRemove =
+                                    4 - size
                             in
-                            m2
+                            Bitwise.shiftRightBy (bytesWeNeedToRemove * 8) maskedFront
 
-                        mask =
-                            Bitwise.shiftRightZfBy ((4 - canRead) * 8) 0xFFFFFFFF
+                        else
+                            Bitwise.shiftRightBy (offset * 8) maskedFront
 
-                        shiftAmount =
-                            4 - (canRead + offset)
+                    written =
+                        min (4 - offset) size
 
-                        byte =
-                            value
-                                |> Bitwise.shiftRightZfBy (shiftAmount * 8)
-                                |> Bitwise.and mask
-                                |> Bitwise.shiftLeftBy ((4 - (finalSize + canRead)) * 8)
-
-                        lastIndex =
-                            Array.length array - 1
-
-                        bytesRemaining =
-                            4 - offset - canRead
-
-                        remainingBytes =
-                            Bitwise.and (Bitwise.shiftRightZfBy ((4 - bytesRemaining) * 8) 0xFFFFFFFF) value
-                                |> Bitwise.shiftLeftBy ((4 - bytesRemaining) * 8)
-                    in
-                    case Array.get lastIndex array of
-                        Nothing ->
-                            ByteArray array finalSize
-
-                        Just current ->
-                            let
-                                newByte =
-                                    Bitwise.or current byte
-                            in
-                            if size - canRead > 0 && size - canRead >= bytesRemaining then
-                                copyToBackInternal (startIndex + canRead + bytesRemaining)
-                                    (size - canRead - bytesRemaining)
-                                    (Array.set lastIndex newByte array |> Array.push remainingBytes)
-                                    bytesRemaining
-
-                            else
-                                copyToBackInternal (startIndex + canRead)
-                                    (size - canRead)
-                                    (Array.set lastIndex newByte array)
-                                    (finalSize + canRead)
+                    (ByteArray x y z) =
+                        pushMany written maskedBack (ByteArray array finalSize finalBytes)
+                in
+                copyToBackInternal (startIndex + written) (size - written) x y z
 
 
 toBytes : ByteArray -> Bytes
-toBytes (ByteArray array finalSize) =
+toBytes (ByteArray array finalSize finalBytes) =
     let
-        folder element accum =
-            case accum of
-                [] ->
-                    let
-                        finalInt32 =
-                            Bitwise.shiftRightZfBy ((4 - finalSize) * 8) element
-                    in
-                    case finalSize of
-                        0 ->
-                            []
+        initial =
+            let
+                finalInt32 =
+                    Bitwise.shiftRightZfBy ((4 - finalSize) * 8) finalBytes
+            in
+            case finalSize of
+                0 ->
+                    []
 
-                        1 ->
-                            [ Encode.unsignedInt8 finalInt32
-                            ]
+                1 ->
+                    [ Encode.unsignedInt8 finalInt32
+                    ]
 
-                        2 ->
-                            [ Encode.unsignedInt16 BE finalInt32
-                            ]
+                2 ->
+                    [ Encode.unsignedInt16 BE finalInt32
+                    ]
 
-                        3 ->
-                            [ Encode.unsignedInt16 BE (Bitwise.shiftRightBy 8 finalInt32)
-                            , Encode.unsignedInt8 (Bitwise.and 0xFF finalInt32)
-                            ]
-
-                        _ ->
-                            [ Encode.unsignedInt32 BE element ]
+                3 ->
+                    [ Encode.unsignedInt16 BE (Bitwise.shiftRightBy 8 finalInt32)
+                    , Encode.unsignedInt8 (Bitwise.and 0xFF finalInt32)
+                    ]
 
                 _ ->
-                    Encode.unsignedInt32 BE element :: accum
+                    [ Encode.unsignedInt32 BE finalBytes ]
+
+        folder element accum =
+            Encode.unsignedInt32 BE element :: accum
     in
-    Array.foldr folder [] array
+    Array.foldr folder initial array
         |> Encode.sequence
         |> Encode.encode
 
@@ -351,8 +313,8 @@ fromBytes buffer =
         Nothing ->
             empty
 
-        Just ( finalSize, array ) ->
-            ByteArray array finalSize
+        Just ( finalSize, finalBytes, array ) ->
+            ByteArray array finalSize finalBytes
 
 
 fromBytesHelp ( remaining, array ) =
@@ -389,15 +351,15 @@ fromBytesHelp ( remaining, array ) =
     else
         case remaining of
             0 ->
-                Decode.succeed (Done ( 4, array ))
+                Decode.succeed (Done ( 0, 0, array ))
 
             1 ->
-                Decode.unsignedInt8 |> Decode.map (\byte -> Done ( 1, Array.push (Bitwise.shiftLeftBy 24 byte) array ))
+                Decode.unsignedInt8 |> Decode.map (\byte -> Done ( 1, Bitwise.shiftLeftBy 24 byte, array ))
 
             2 ->
-                Decode.unsignedInt16 BE |> Decode.map (\byte -> Done ( 2, Array.push (Bitwise.shiftLeftBy 16 byte) array ))
+                Decode.unsignedInt16 BE |> Decode.map (\byte -> Done ( 2, Bitwise.shiftLeftBy 16 byte, array ))
 
             _ ->
-                Decode.map2 (\bytes byte -> Done ( 3, Array.push (Bitwise.or (Bitwise.shiftLeftBy 16 bytes) (Bitwise.shiftLeftBy 8 byte)) array ))
+                Decode.map2 (\bytes byte -> Done ( 3, Bitwise.or (Bitwise.shiftLeftBy 16 bytes) (Bitwise.shiftLeftBy 8 byte), array ))
                     (Decode.unsignedInt16 BE)
                     Decode.unsignedInt8

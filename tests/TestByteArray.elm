@@ -12,6 +12,44 @@ import Test exposing (..)
 
 
 suite =
+    if True then
+        fullSuite
+
+    else
+        mySuite
+
+
+mySuite =
+    let
+        v =
+            List.range 0 19
+    in
+    copyBackTest 5 6 v
+
+
+copyBackTest a b v =
+    let
+        array =
+            Array.fromList v
+
+        byteArray =
+            ByteArray.fromList v
+    in
+    test ("copyToBack works like array copy " ++ String.fromInt a ++ " " ++ String.fromInt b) <|
+        \_ ->
+            let
+                forArray =
+                    copyLoop a b a (Array.length array) array
+
+                forBArray =
+                    ByteArray.copyToBack a b byteArray
+            in
+            forBArray
+                |> ByteArray.toList
+                |> Expect.equal (Array.toList forArray)
+
+
+fullSuite =
     describe "ByteArray"
         [ describe "length"
             [ test "length empty" <|
@@ -82,6 +120,11 @@ suite =
                         |> ByteArray.push 5
                         |> ByteArray.get 0
                         |> Expect.equal (Just 42)
+            , test "range" <|
+                \_ ->
+                    ByteArray.fromList (List.range 0 10)
+                        |> ByteArray.toList
+                        |> Expect.equal (List.range 0 10)
             , let
                 v =
                     List.range 0 19
@@ -113,6 +156,18 @@ suite =
 
                             forBArray =
                                 ByteArray.copyToBack 2 8 byteArray
+                        in
+                        forBArray
+                            |> ByteArray.toList
+                            |> Expect.equal (Array.toList forArray)
+                , test "copyToBack works like array copy 1 5" <|
+                    \_ ->
+                        let
+                            forArray =
+                                copyLoop 1 5 1 (Array.length array) array
+
+                            forBArray =
+                                ByteArray.copyToBack 1 5 byteArray
                         in
                         forBArray
                             |> ByteArray.toList

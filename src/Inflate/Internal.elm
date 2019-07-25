@@ -6,6 +6,7 @@ import ByteArray
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Step(..))
 import Bytes.Encode as Encode
+import Dict exposing (Dict)
 import Inflate.BitReader as BitReader exposing (BitReader(..))
 import List.Extra
 
@@ -156,51 +157,95 @@ sdtree =
     }
 
 
-clcIndices : Array Int
+clcIndices : List Int
 clcIndices =
-    Array.fromList
-        [ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 ]
+    [ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 ]
 
 
-buildTree : Array Int -> Int -> Int -> Tree
+lengthsToDict lengths =
+    Array.foldl
+        (\element ( i, accum ) ->
+            if element > 0 then
+                ( i + 1, Dict.insert i element accum )
+
+            else
+                ( i + 1, accum )
+        )
+        ( 0, Dict.empty )
+        lengths
+        |> Tuple.second
+
+
+buildTree : Dict Int Int -> Int -> Int -> Tree
 buildTree lengths offset num =
     let
-        table : Array Int
-        table =
-            Array.slice offset (num + offset) lengths
-                |> Array.foldl (\i -> update i (\v -> v + 1)) (Array.repeat 16 0)
-                |> Array.set 0 0
+        lengthsDict =
+            lengths
 
-        offsets : Array Int
-        offsets =
-            Array.foldl (\v ( sum, accum ) -> ( v + sum, Array.push sum accum )) ( 0, Array.empty ) table
-                |> Tuple.second
+        tableDict =
+            Dict.foldl
+                (\key value accum ->
+                    if key >= offset && key < (num + offset) then
+                        Dict.update value
+                            (\maybeValue ->
+                                case maybeValue of
+                                    Nothing ->
+                                        Just 1
 
-        go i currentTranslation currentOffsets =
+                                    Just v ->
+                                        Just (v + 1)
+                            )
+                            accum
+
+                    else
+                        accum
+                )
+                Dict.empty
+                lengthsDict
+
+        newTable =
+            tableDict
+                |> (\dict ->
+                        Array.initialize 16
+                            (\i ->
+                                case Dict.get i dict of
+                                    Nothing ->
+                                        0
+
+                                    Just v ->
+                                        v
+                            )
+                   )
+                |> Array.toList
+
+        offsetsDict =
+            Dict.foldl (\key value ( sum, dict ) -> ( sum + value, Dict.insert key sum dict )) ( 0, Dict.empty ) tableDict
+
+        go2 i currentTranslation currentOffsets =
             if i < num then
-                case Array.get (offset + i) lengths of
+                case Dict.get (offset + i) lengthsDict of
                     Nothing ->
-                        go (i + 1) currentTranslation currentOffsets
+                        go2 (i + 1) currentTranslation currentOffsets
 
                     Just v ->
                         if v /= 0 then
-                            case Array.get v currentOffsets of
+                            case Dict.get v currentOffsets of
                                 Nothing ->
                                     currentTranslation
 
                                 Just w ->
-                                    go (i + 1) (Array.set w i currentTranslation) (update v (\x -> x + 1) currentOffsets)
+                                    go2 (i + 1) (Array.set w i currentTranslation) (Dict.insert v (w + 1) currentOffsets)
 
                         else
-                            go (i + 1) currentTranslation currentOffsets
+                            go2 (i + 1) currentTranslation currentOffsets
 
             else
                 currentTranslation
 
-        translation =
-            go 0 (Array.repeat num 0) offsets
+        translation2 =
+            go2 0 (Array.repeat num 0) (offsetsDict |> Tuple.second)
     in
-    { table = Array.toList table, trans = translation }
+    { table = newTable, trans = translation2 }
 
 
 update : Int -> (a -> a) -> Array a -> Array a
@@ -288,7 +333,7 @@ decodeTrees =
 cont : Int -> Int -> Int -> BitReader ( Tree, Tree )
 cont hlit hdist hclen =
     let
-        buildTrees : Array Int -> ( Tree, Tree )
+        buildTrees : Dict Int Int -> ( Tree, Tree )
         buildTrees lengths =
             ( buildTree lengths 0 hlit
             , buildTree lengths hlit hdist
@@ -299,15 +344,11 @@ cont hlit hdist hclen =
         |> BitReader.map buildTrees
 
 
-emptyInitialLengths =
-    Array.repeat (288 + 32) 0
-
-
-decodeTreeLengths : Int -> Int -> Int -> List Int -> BitReader (Array Int)
+decodeTreeLengths : Int -> Int -> Int -> List Int -> BitReader (Dict Int Int)
 decodeTreeLengths hlit hdist hclen codeLengths =
     let
         clcs =
-            Array.toList (Array.slice 0 hclen clcIndices)
+            List.take hclen clcIndices
 
         initialLengths =
             let
@@ -322,21 +363,25 @@ decodeTreeLengths hlit hdist hclen codeLengths =
                                     accum
 
                                 codeLength :: restCodeLength ->
-                                    go restIndex restCodeLength (Array.set index codeLength accum)
-            in
-            go clcs codeLengths emptyInitialLengths
+                                    if codeLength /= 0 then
+                                        go restIndex restCodeLength (Dict.insert index codeLength accum)
 
-        -- List.map2 Tuple.pair clcs codeLengths |> List.foldl (\( index, codeLength ) -> Array.set index codeLength) ()
+                                    else
+                                        go restIndex restCodeLength accum
+            in
+            go clcs codeLengths Dict.empty
+
         codeTree =
             buildTree initialLengths 0 19
     in
     BitReader.loop ( 0, initialLengths ) (decodeDynamicTreeLength codeTree hlit hdist)
+        |> BitReader.map (\dict -> Dict.diff dict initialLengths)
 
 
-decodeDynamicTreeLength : Tree -> Int -> Int -> ( Int, Array Int ) -> BitReader (Step ( Int, Array Int ) (Array Int))
+decodeDynamicTreeLength : Tree -> Int -> Int -> ( Int, Dict Int Int ) -> BitReader (Step ( Int, Dict Int Int ) (Dict Int Int))
 decodeDynamicTreeLength codeTree hlit hdist ( i, lengths ) =
     let
-        copySegment : Int -> Int -> Step ( Int, Array Int ) a
+        copySegment : Int -> Int -> Step ( Int, Dict Int Int ) a
         copySegment value length =
             let
                 end =
@@ -344,7 +389,11 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, lengths ) =
 
                 go j accum =
                     if j < end then
-                        go (j + 1) (Array.set j value accum)
+                        if value /= 0 then
+                            go (j + 1) (Dict.insert j value accum)
+
+                        else
+                            go (j + 1) accum
 
                     else
                         accum
@@ -368,7 +417,7 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, lengths ) =
                             -- copy previous code length 3-6 times (read 2 bits)
                             let
                                 prev =
-                                    Array.get (i - 1) lengths |> Maybe.withDefault 0
+                                    Dict.get (i - 1) lengths |> Maybe.withDefault 0
                             in
                             BitReader.readBits 2 3
                                 |> BitReader.map (copySegment prev)
@@ -383,9 +432,13 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, lengths ) =
                             BitReader.readBits 7 11
                                 |> BitReader.map (copySegment 0)
 
+                        0 ->
+                            -- 0 is the default of the dict; don't write it
+                            BitReader.succeed (Loop ( i + 1, lengths ))
+
                         _ ->
                             -- values 0-15 represent the actual code lengths
-                            BitReader.succeed (Loop ( i + 1, Array.set i sym lengths ))
+                            BitReader.succeed (Loop ( i + 1, Dict.insert i sym lengths ))
                 )
 
     else
