@@ -56,11 +56,11 @@ module Inflate.Inflate exposing (inflate, inflateZLib, inflateGZip)
 
 -}
 
--- import Inflate.Internal as Internal
+--import Experimental.Inflate as Internal
 
 import Bytes exposing (Bytes)
-import Experimental.Inflate as Internal
 import Inflate.GZip as GZip
+import Inflate.Internal as Internal
 import Inflate.ZLib as ZLib
 
 

@@ -20,19 +20,17 @@ import TestData.Lorem as Lorem
 
 mySuite =
     let
-        setup name input output =
-            test name <|
+        setup index input output =
+            test ("lot of zeros " ++ String.fromInt index) <|
                 \_ ->
-                    case input |> Array.fromList |> ByteArray.toBytes |> ZLib.inflate of
-                        Ok v ->
-                            Just v
-                                |> Maybe.andThen (\b -> Decode.decode (Decode.string 3) b)
-                                |> Expect.equal (Just output)
-
-                        Err e ->
-                            Expect.fail (Debug.toString e)
+                    input
+                        |> Array.fromList
+                        |> ByteArray.toBytes
+                        |> External.inflate
+                        |> Maybe.andThen (\b -> Decode.decode (exactly (Bytes.width b) Decode.unsignedInt8) b)
+                        |> Expect.equal (Just output)
     in
-    setup "zlib foo dynamic" [ 0x78, 0x9C, 0x05, 0xC0, 0x21, 0x0D, 0x00, 0x00, 0x00, 0x80, 0xB0, 0xB6, 0xD8, 0xF7, 0x77, 0x2C, 0x06, 0x02, 0x82, 0x01, 0x45 ] "foo"
+    setup 12 [ 5, 192, 177, 16, 0, 0, 12, 4, 193, 45, 2, 16, 165, 247, 151, 186, 193, 253, 16 ] [ 0, 0, 0, 4, 16, 65, 0, 0, 0 ]
 
 
 exactly n decoder =
