@@ -144,7 +144,7 @@ flushLoop i windowSize buffer prefixTable encoders =
                         Just p3 ->
                             let
                                 -- create a prefix key (hash) for the current position
-                                key : PrefixTable.Prefix
+                                key : PrefixTable.PrefixCode
                                 key =
                                     PrefixTable.createPrefix p1 p2 p3
 
@@ -200,7 +200,7 @@ updatePrefixTableLoop k limit buffer prefixTable =
         prefixTable
 
 
-prefix : Int -> ByteArray -> PrefixTable.Prefix
+prefix : Int -> ByteArray -> PrefixTable.PrefixCode
 prefix index array =
     Maybe.map3 PrefixTable.createPrefix
         (ByteArray.get (index + 0) array)

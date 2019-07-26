@@ -1,4 +1,4 @@
-module PrefixTable exposing (Prefix, PrefixTable, createPrefix, insert, length, new)
+module PrefixTable exposing (PrefixCode, PrefixTable, createPrefix, insert, length, new)
 
 import Array exposing (Array)
 import Bitwise
@@ -22,15 +22,15 @@ type PrefixTable
     | Large LargePrefixTable
 
 
-type Prefix
-    = Prefix Int
+type PrefixCode
+    = PrefixCode Int
 
 
-createPrefix : Int -> Int -> Int -> Prefix
+createPrefix : Int -> Int -> Int -> PrefixCode
 createPrefix a b c =
     Bitwise.shiftLeftBy 16 a
         |> Bitwise.or (Bitwise.or (Bitwise.shiftLeftBy 8 b) c)
-        |> Prefix
+        |> PrefixCode
 
 
 length : PrefixTable -> Int
@@ -52,8 +52,8 @@ new nbytes =
         Large newLargePrefixTable
 
 
-insert : Prefix -> Int -> PrefixTable -> ( PrefixTable, Maybe Int )
-insert (Prefix prefix) position ptable =
+insert : PrefixCode -> Int -> PrefixTable -> ( PrefixTable, Maybe Int )
+insert (PrefixCode prefix) position ptable =
     case ptable of
         Small dict ->
             case Dict.get prefix dict of
