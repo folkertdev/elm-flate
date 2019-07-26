@@ -20,10 +20,10 @@ Note that the pointer tries to read 4 bytes, even though the output stream at th
 
 import Array exposing (Array)
 import Bitwise
-import ByteArray
 import Bytes exposing (Bytes)
 import Bytes.Decode as Decode
 import Bytes.Encode as Encode exposing (Encoder)
+import Experimental.ByteArray as ByteArray exposing (ByteArray)
 import PrefixTable exposing (PrefixTable)
 
 
@@ -42,12 +42,7 @@ encode buffer =
 -}
 encodeWithOptions : { windowSize : Int } -> Bytes -> List Code
 encodeWithOptions { windowSize } buffer =
-    case Decode.decode (ByteArray.decoder (Bytes.width buffer)) buffer of
-        Nothing ->
-            []
-
-        Just barray ->
-            flush windowSize barray
+    flush windowSize (ByteArray.fromBytes buffer)
 
 
 {-| Decode using the LZ77 encoding
@@ -121,28 +116,28 @@ type CompressionLevel
     | Best
 
 
-flush : Int -> Array Int -> List Code
+flush : Int -> ByteArray -> List Code
 flush windowSize buffer =
     let
         codes =
-            flushLoop 0 windowSize buffer (PrefixTable.new (Array.length buffer)) Array.empty
+            flushLoop 0 windowSize buffer (PrefixTable.new (ByteArray.length buffer)) Array.empty
     in
     Array.toList codes
 
 
-flushLoop : Int -> Int -> Array Int -> PrefixTable -> Array Code -> Array Code
+flushLoop : Int -> Int -> ByteArray -> PrefixTable -> Array Code -> Array Code
 flushLoop i windowSize buffer prefixTable encoders =
-    case Array.get i buffer of
+    case ByteArray.get i buffer of
         Nothing ->
             encoders
 
         Just p1 ->
-            case Array.get (i + 1) buffer of
+            case ByteArray.get (i + 1) buffer of
                 Nothing ->
                     Array.push (Literal p1) encoders
 
                 Just p2 ->
-                    case Array.get (i + 2) buffer of
+                    case ByteArray.get (i + 2) buffer of
                         Nothing ->
                             Array.push (Literal p2) (Array.push (Literal p1) encoders)
 
@@ -189,7 +184,7 @@ flushLoop i windowSize buffer prefixTable encoders =
                                     flushLoop (i + 1) windowSize buffer newPrefixTable (Array.push (Literal p1) encoders)
 
 
-updatePrefixTableLoop : Int -> Int -> Array Int -> PrefixTable -> PrefixTable
+updatePrefixTableLoop : Int -> Int -> ByteArray -> PrefixTable -> PrefixTable
 updatePrefixTableLoop k limit buffer prefixTable =
     if k < limit then
         let
@@ -205,33 +200,33 @@ updatePrefixTableLoop k limit buffer prefixTable =
         prefixTable
 
 
-prefix : Int -> Array Int -> PrefixTable.Prefix
+prefix : Int -> ByteArray -> PrefixTable.Prefix
 prefix index array =
     Maybe.map3 PrefixTable.createPrefix
-        (Array.get (index + 0) array)
-        (Array.get (index + 1) array)
-        (Array.get (index + 2) array)
+        (ByteArray.get (index + 0) array)
+        (ByteArray.get (index + 1) array)
+        (ByteArray.get (index + 2) array)
         |> Maybe.withDefault (PrefixTable.createPrefix 0 0 0)
 
 
-longestCommonPrefix : Int -> Int -> Array number -> Int
+longestCommonPrefix : Int -> Int -> ByteArray -> Int
 longestCommonPrefix i j array =
     let
         remaining =
-            min (max_length - 3) (Array.length array - j)
+            min (max_length - 3) (ByteArray.length array - j)
     in
     longestCommonPrefixLoop i j (i + remaining) 0 array
 
 
-longestCommonPrefixLoop : Int -> Int -> Int -> Int -> Array number -> Int
+longestCommonPrefixLoop : Int -> Int -> Int -> Int -> ByteArray -> Int
 longestCommonPrefixLoop i j limit accum array =
     if i < limit then
-        case Array.get i array of
+        case ByteArray.get i array of
             Nothing ->
                 accum
 
             Just value1 ->
-                case Array.get j array of
+                case ByteArray.get j array of
                     Nothing ->
                         accum
 
