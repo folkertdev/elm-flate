@@ -341,7 +341,7 @@ fromBytesHelp ( remaining, array ) =
         Decode.map
             (\a ->
                 Loop
-                    ( remaining - 20
+                    ( remaining - 4
                     , array
                         |> Array.push a
                     )

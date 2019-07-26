@@ -210,12 +210,23 @@ fullSuite =
                             |> Expect.equal (Array.toList forArray)
                 ]
             ]
+        , describe "list conversion"
+            [ fuzz (Fuzz.list (Fuzz.intRange 0 255)) "fromBytes" <|
+                \bytes ->
+                    bytes
+                        |> ByteArray.fromList
+                        |> ByteArray.toList
+                        |> Expect.equal bytes
+            ]
         , describe "byte conversion"
             [ test "fromBytes" <|
                 \_ ->
                     let
-                        encoded =
+                        range =
                             List.range 0 102
+
+                        encoded =
+                            range
                                 |> List.map Encode.unsignedInt8
                                 |> Encode.sequence
                                 |> Encode.encode
@@ -223,7 +234,36 @@ fullSuite =
                     encoded
                         |> ByteArray.fromBytes
                         |> ByteArray.toList
-                        |> Expect.equal (ArrayHelp.fromBytes encoded |> Array.toList)
+                        |> Expect.equal range
+            , test "fromBytes [0,0,0,0]" <|
+                \_ ->
+                    let
+                        range =
+                            [ 0, 0, 0, 0 ]
+
+                        encoded =
+                            range
+                                |> List.map Encode.unsignedInt8
+                                |> Encode.sequence
+                                |> Encode.encode
+                    in
+                    encoded
+                        |> ByteArray.fromBytes
+                        |> ByteArray.toList
+                        |> Expect.equal range
+            , fuzz (Fuzz.list (Fuzz.intRange 0 255)) "fromBytes fuzz" <|
+                \range ->
+                    let
+                        encoded =
+                            range
+                                |> List.map Encode.unsignedInt8
+                                |> Encode.sequence
+                                |> Encode.encode
+                    in
+                    encoded
+                        |> ByteArray.fromBytes
+                        |> ByteArray.toList
+                        |> Expect.equal range
             , test "toBytes" <|
                 \_ ->
                     let
@@ -233,6 +273,21 @@ fullSuite =
 
                         byteArray =
                             List.range 0 102
+                                |> ByteArray.fromList
+                    in
+                    byteArray
+                        |> ByteArray.toBytes
+                        |> ArrayHelp.fromBytes
+                        |> Expect.equal (ArrayHelp.toBytes array |> ArrayHelp.fromBytes)
+            , fuzz (Fuzz.list (Fuzz.intRange 0 255)) "toBytes fuzz" <|
+                \range ->
+                    let
+                        array =
+                            range
+                                |> Array.fromList
+
+                        byteArray =
+                            range
                                 |> ByteArray.fromList
                     in
                     byteArray
