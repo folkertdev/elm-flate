@@ -125,12 +125,12 @@ flush : Int -> Array Int -> List Code
 flush windowSize buffer =
     let
         codes =
-            flushLoop 0 windowSize buffer (PrefixTable.new (Array.length buffer)) []
+            flushLoop 0 windowSize buffer (PrefixTable.new (Array.length buffer)) Array.empty
     in
-    List.reverse codes
+    Array.toList codes
 
 
-flushLoop : Int -> Int -> Array Int -> PrefixTable -> List Code -> List Code
+flushLoop : Int -> Int -> Array Int -> PrefixTable -> Array Code -> Array Code
 flushLoop i windowSize buffer prefixTable encoders =
     case Array.get i buffer of
         Nothing ->
@@ -139,12 +139,12 @@ flushLoop i windowSize buffer prefixTable encoders =
         Just p1 ->
             case Array.get (i + 1) buffer of
                 Nothing ->
-                    Literal p1 :: encoders
+                    Array.push (Literal p1) encoders
 
                 Just p2 ->
                     case Array.get (i + 2) buffer of
                         Nothing ->
-                            Literal p2 :: Literal p1 :: encoders
+                            Array.push (Literal p2) (Array.push (Literal p1) encoders)
 
                         Just p3 ->
                             let
@@ -171,7 +171,7 @@ flushLoop i windowSize buffer prefixTable encoders =
                                                 3 + longestCommonPrefix (i + 3) (j + 3) buffer
 
                                             newEncoders =
-                                                Pointer length distance :: encoders
+                                                Array.push (Pointer length distance) encoders
 
                                             newerPrefixTable =
                                                 updatePrefixTableLoop (i + 1) (i + length) buffer newPrefixTable
@@ -182,11 +182,11 @@ flushLoop i windowSize buffer prefixTable encoders =
                                         -- found no match; encode as a literal
                                         -- @optimize I tried to give the p2 and p3 values as arguments
                                         -- saves 2 reads, but was slower in profiles at the time
-                                        flushLoop (i + 1) windowSize buffer newPrefixTable (Literal p1 :: encoders)
+                                        flushLoop (i + 1) windowSize buffer newPrefixTable (Array.push (Literal p1) encoders)
 
                                 Nothing ->
                                     -- found no match; encode as a literal
-                                    flushLoop (i + 1) windowSize buffer newPrefixTable (Literal p1 :: encoders)
+                                    flushLoop (i + 1) windowSize buffer newPrefixTable (Array.push (Literal p1) encoders)
 
 
 updatePrefixTableLoop : Int -> Int -> Array Int -> PrefixTable -> PrefixTable
