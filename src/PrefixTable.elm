@@ -45,8 +45,7 @@ length table =
 
 new : Int -> PrefixTable
 new nbytes =
-    -- if nbytes < max_window_size then
-    if True then
+    if nbytes < max_window_size then
         Small Dict.empty
 
     else
