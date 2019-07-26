@@ -1,4 +1,4 @@
-module Experimental.ByteArray exposing (ByteArray, copyToBack, empty, fromBytes, fromList, get, length, push, set, toBytes, toList)
+module Experimental.ByteArray exposing (ByteArray, copyToBack, empty, fromBytes, fromList, get, getInt32, length, longestCommonPrefix, push, set, toBytes, toList)
 
 import Array exposing (Array)
 import Bitwise
@@ -65,6 +65,22 @@ get index (ByteArray array finalSize finalBytes) =
                     |> Bitwise.shiftRightZfBy (8 * (3 - offset))
                     |> Bitwise.and 0xFF
                     |> Just
+
+
+getInt32 : Int -> ByteArray -> Maybe Int
+getInt32 index (ByteArray array _ finalBytes) =
+    let
+        size =
+            Array.length array
+    in
+    if (index - size) > 0 then
+        Nothing
+
+    else if (index - size) == 0 then
+        Just finalBytes
+
+    else
+        Array.get index array
 
 
 
@@ -363,3 +379,79 @@ fromBytesHelp ( remaining, array ) =
                 Decode.map2 (\bytes byte -> Done ( 3, Bitwise.or (Bitwise.shiftLeftBy 16 bytes) (Bitwise.shiftLeftBy 8 byte), array ))
                     (Decode.unsignedInt16 BE)
                     Decode.unsignedInt8
+
+
+longestCommonPrefix : Int -> Int -> Int -> ByteArray -> Int
+longestCommonPrefix max_length i j array =
+    let
+        remaining =
+            min (max_length - 3) (length array - j)
+    in
+    longestCommonPrefixLoop i j (i + remaining) 0 array
+
+
+longestCommonPrefixLoop : Int -> Int -> Int -> Int -> ByteArray -> Int
+longestCommonPrefixLoop i j limit accum array =
+    if i < limit then
+        case get i array of
+            Nothing ->
+                accum
+
+            Just value1 ->
+                case get j array of
+                    Nothing ->
+                        accum
+
+                    Just value2 ->
+                        -- use arithmetic to force inline the compare
+                        if (value1 - value2) == 0 then
+                            longestCommonPrefixLoop (i + 1) (j + 1) limit (accum + 1) array
+
+                        else
+                            accum
+
+    else
+        accum
+
+
+fasterCommonPrefixLoop max_length i j prefixLength value1 value2 cache1 cache2 offset1 offset2 barray =
+    if value1 == value2 && max_length + 4 <= max_length then
+        case getInt32 (i // 4) barray of
+            Nothing ->
+                let
+                    remaining =
+                        min (max_length - 3) (length barray - j)
+                in
+                longestCommonPrefixLoop i j (i + remaining) prefixLength barray
+
+            Just nextValue1 ->
+                case getInt32 (j // 4) barray of
+                    Nothing ->
+                        let
+                            remaining =
+                                min (max_length - 3) (length barray - j)
+                        in
+                        longestCommonPrefixLoop i j (i + remaining) prefixLength barray
+
+                    Just nextValue2 ->
+                        let
+                            newValue1 =
+                                Bitwise.or cache1 (Bitwise.shiftRightBy ((4 - offset1) * 8) nextValue1)
+
+                            newCache1 =
+                                Bitwise.shiftLeftBy (offset1 * 8) nextValue1
+
+                            newValue2 =
+                                Bitwise.or cache2 (Bitwise.shiftRightBy ((4 - offset2) * 8) nextValue2)
+
+                            newCache2 =
+                                Bitwise.shiftLeftBy (offset2 * 8) nextValue2
+                        in
+                        fasterCommonPrefixLoop max_length (i + 4) (j + 4) (prefixLength + 4) newValue1 newValue2 newCache1 newCache2 offset1 offset2 barray
+
+    else
+        let
+            remaining =
+                min (max_length - 3) (length barray - j)
+        in
+        longestCommonPrefixLoop i j (i + remaining) prefixLength barray

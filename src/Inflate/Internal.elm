@@ -1,13 +1,14 @@
 module Inflate.Internal exposing (HuffmanTable, Tree, buildBitsBase, buildTree, clcIndices, decodeDynamicTreeLength, decodeSymbol, decodeTrees, empty, hardcodedDistanceTable, hardcodedLengthTable, inflate, inflateBlockData, inflateBlockDataHelp, inflateUncompressedBlock, insert, sdtree, sltree, uncompress, uncompressHelp)
 
+-- import ByteArray
+
 import Array exposing (Array)
 import Bitwise
-import ByteArray
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Step(..))
 import Bytes.Encode as Encode
 import Dict exposing (Dict)
-import Experimental.ByteArray as Exp
+import Experimental.ByteArray as ByteArray exposing (ByteArray)
 import Inflate.BitReader as BitReader exposing (BitReader(..))
 import List.Extra
 
@@ -48,7 +49,7 @@ uncompressHelp output =
                         lengthSoFar =
                             List.sum (List.map Bytes.width output)
                     in
-                    inflateBlockData { literal = sltree, distance = sdtree } lengthSoFar Array.empty
+                    inflateBlockData { literal = sltree, distance = sdtree } lengthSoFar ByteArray.empty
                         |> BitReader.map ByteArray.toBytes
                         |> BitReader.map (\v -> v :: output)
 
@@ -58,7 +59,7 @@ uncompressHelp output =
                             List.sum (List.map Bytes.width output)
                     in
                     decodeTrees
-                        |> BitReader.andThen (\( ltree, dtree ) -> inflateBlockData { literal = ltree, distance = dtree } lengthSoFar Array.empty)
+                        |> BitReader.andThen (\( ltree, dtree ) -> inflateBlockData { literal = ltree, distance = dtree } lengthSoFar ByteArray.empty)
                         |> BitReader.map ByteArray.toBytes
                         |> BitReader.map (\v -> v :: output)
 
@@ -571,12 +572,12 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
 -- INFLATE BLOCK
 
 
-inflateBlockData : { literal : Tree, distance : Tree } -> Int -> Array Int -> BitReader (Array Int)
+inflateBlockData : { literal : Tree, distance : Tree } -> Int -> ByteArray -> BitReader ByteArray
 inflateBlockData trees outputLength output =
     BitReader.loop ( outputLength, output ) (inflateBlockDataHelp trees)
 
 
-inflateBlockDataHelp : { literal : Tree, distance : Tree } -> ( Int, Array Int ) -> BitReader (Step ( Int, Array Int ) (Array Int))
+inflateBlockDataHelp : { literal : Tree, distance : Tree } -> ( Int, ByteArray ) -> BitReader (Step ( Int, ByteArray ) ByteArray)
 inflateBlockDataHelp trees ( outputLength, output ) =
     let
         lt =
@@ -598,10 +599,10 @@ inflateBlockDataHelp trees ( outputLength, output ) =
                     BitReader.succeed (Done output)
 
                 else if symbol < 256 then
-                    BitReader.succeed (Loop ( outputLength + 1, Array.push symbol output ))
+                    BitReader.succeed (Loop ( outputLength + 1, ByteArray.push symbol output ))
 
                 else
-                    BitReader.map2 (\length offset -> Loop ( outputLength + length, copyLoop offset length offset outputLength output ))
+                    BitReader.map2 (\length offset -> Loop ( outputLength + length, ByteArray.copyToBack offset length output {- copyLoop offset length offset outputLength output -} ))
                         (decodeLength symbol)
                         (decodeOffset outputLength dt)
             )
