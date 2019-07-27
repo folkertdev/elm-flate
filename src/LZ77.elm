@@ -127,61 +127,52 @@ flush windowSize buffer =
 
 flushLoop : Int -> Int -> ByteArray -> PrefixTable -> Array Code -> Array Code
 flushLoop i windowSize buffer prefixTable encoders =
-    case ByteArray.get i buffer of
-        Nothing ->
+    case PrefixTable.prefixAt i buffer of
+        PrefixTable.OutOfBounds ->
             encoders
 
-        Just p1 ->
-            case ByteArray.get (i + 1) buffer of
+        PrefixTable.Trailing1 p1 ->
+            Array.push (Literal p1) encoders
+
+        PrefixTable.Trailing2 p1 p2 ->
+            Array.push (Literal p2) (Array.push (Literal p1) encoders)
+
+        PrefixTable.Prefix p1 key ->
+            let
+                -- insert the prefix into the tree, while also retrieving a previous entry
+                -- if it exists. This previous entry has the same prefix, and so we'll check
+                -- how long the shared prefix is there
+                ( newPrefixTable, matched ) =
+                    PrefixTable.insert key i prefixTable
+            in
+            case matched of
+                Just j ->
+                    let
+                        distance =
+                            i - j
+                    in
+                    if distance <= windowSize then
+                        let
+                            length =
+                                3 + longestCommonPrefix (i + 3) (j + 3) buffer
+
+                            newEncoders =
+                                Array.push (Pointer length distance) encoders
+
+                            newerPrefixTable =
+                                updatePrefixTableLoop (i + 1) (i + length) buffer newPrefixTable
+                        in
+                        flushLoop (i + length) windowSize buffer newerPrefixTable newEncoders
+
+                    else
+                        -- found no match; encode as a literal
+                        -- @optimize I tried to give the p2 and p3 values as arguments
+                        -- saves 2 reads, but was slower in profiles at the time
+                        flushLoop (i + 1) windowSize buffer newPrefixTable (Array.push (Literal p1) encoders)
+
                 Nothing ->
-                    Array.push (Literal p1) encoders
-
-                Just p2 ->
-                    case ByteArray.get (i + 2) buffer of
-                        Nothing ->
-                            Array.push (Literal p2) (Array.push (Literal p1) encoders)
-
-                        Just p3 ->
-                            let
-                                -- create a prefix key (hash) for the current position
-                                key : PrefixTable.PrefixCode
-                                key =
-                                    PrefixTable.createPrefix p1 p2 p3
-
-                                -- insert the prefix into the tree, while also retrieving a previous entry
-                                -- if it exists. This previous entry has the same prefix, and so we'll check
-                                -- how long the shared prefix is there
-                                ( newPrefixTable, matched ) =
-                                    PrefixTable.insert key i prefixTable
-                            in
-                            case matched of
-                                Just j ->
-                                    let
-                                        distance =
-                                            i - j
-                                    in
-                                    if distance <= windowSize then
-                                        let
-                                            length =
-                                                3 + longestCommonPrefix (i + 3) (j + 3) buffer
-
-                                            newEncoders =
-                                                Array.push (Pointer length distance) encoders
-
-                                            newerPrefixTable =
-                                                updatePrefixTableLoop (i + 1) (i + length) buffer newPrefixTable
-                                        in
-                                        flushLoop (i + length) windowSize buffer newerPrefixTable newEncoders
-
-                                    else
-                                        -- found no match; encode as a literal
-                                        -- @optimize I tried to give the p2 and p3 values as arguments
-                                        -- saves 2 reads, but was slower in profiles at the time
-                                        flushLoop (i + 1) windowSize buffer newPrefixTable (Array.push (Literal p1) encoders)
-
-                                Nothing ->
-                                    -- found no match; encode as a literal
-                                    flushLoop (i + 1) windowSize buffer newPrefixTable (Array.push (Literal p1) encoders)
+                    -- found no match; encode as a literal
+                    flushLoop (i + 1) windowSize buffer newPrefixTable (Array.push (Literal p1) encoders)
 
 
 updatePrefixTableLoop : Int -> Int -> ByteArray -> PrefixTable -> PrefixTable
@@ -202,11 +193,19 @@ updatePrefixTableLoop k limit buffer prefixTable =
 
 prefix : Int -> ByteArray -> PrefixTable.PrefixCode
 prefix index array =
-    Maybe.map3 PrefixTable.createPrefix
-        (ByteArray.get (index + 0) array)
-        (ByteArray.get (index + 1) array)
-        (ByteArray.get (index + 2) array)
-        |> Maybe.withDefault (PrefixTable.createPrefix 0 0 0)
+    {-
+       Maybe.map3 PrefixTable.createPrefix
+           (ByteArray.get (index + 0) array)
+           (ByteArray.get (index + 1) array)
+           (ByteArray.get (index + 2) array)
+           |> Maybe.withDefault (PrefixTable.createPrefix 0 0 0)
+    -}
+    case PrefixTable.prefixAt index array of
+        PrefixTable.Prefix _ code ->
+            code
+
+        _ ->
+            PrefixTable.createPrefix 0 0 0
 
 
 longestCommonPrefix : Int -> Int -> ByteArray -> Int

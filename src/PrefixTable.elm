@@ -1,8 +1,9 @@
-module PrefixTable exposing (PrefixCode, PrefixTable, createPrefix, insert, length, new)
+module PrefixTable exposing (Prefix(..), PrefixCode, PrefixTable, createPrefix, insert, length, new, prefixAt)
 
 import Array exposing (Array)
 import Bitwise
 import Dict exposing (Dict)
+import Experimental.ByteArray as ByteArray exposing (ByteArray)
 
 
 {-| Maximum backward distance of a pointer.
@@ -80,39 +81,175 @@ insert (PrefixCode prefix) position ptable =
                 Just positions ->
                     let
                         size =
-                            Array.length positions
+                            List.length positions
 
-                        go k accum =
-                            if k < size then
-                                case Array.get k accum of
-                                    Nothing ->
-                                        Err ()
+                        go2 remaining accum =
+                            case remaining of
+                                [] ->
+                                    let
+                                        newPositions =
+                                            List.reverse (( p2, position ) :: accum)
+                                    in
+                                    ( Large (LargePrefixTable (Array.set i newPositions array)), Nothing )
 
-                                    Just ( key, oldValue ) ->
-                                        if key == p2 then
-                                            Ok ( Large (LargePrefixTable (Array.set i (Array.set k ( key, position ) positions) array)), Just oldValue )
+                                (( key, oldValue ) as current) :: rest ->
+                                    if key == p2 then
+                                        let
+                                            newPositions =
+                                                List.reverse accum ++ (( key, position ) :: rest)
+                                        in
+                                        ( Large (LargePrefixTable (Array.set i newPositions array)), Just oldValue )
 
-                                        else
-                                            go (k + 1) accum
+                                    else if (p2 - key) > 0 then
+                                        let
+                                            newPositions =
+                                                List.reverse accum ++ (( p2, position ) :: rest)
+                                        in
+                                        ( Large (LargePrefixTable (Array.set i newPositions array)), Nothing )
 
-                            else
-                                Err ()
+                                    else
+                                        go2 rest (current :: accum)
                     in
-                    case go 0 positions of
-                        Ok value ->
-                            value
-
-                        Err _ ->
-                            ( Large (LargePrefixTable (Array.set i (Array.push ( p2, position ) positions) array)), Nothing )
+                    go2 positions []
 
 
 type LargePrefixTable
-    = LargePrefixTable (Array (Array ( Int, Int )))
+    = LargePrefixTable (Array (List ( Int, Int )))
 
 
 newLargePrefixTable =
-    LargePrefixTable (Array.repeat 0xFFFF Array.empty)
+    LargePrefixTable (Array.repeat 0xFFFF [])
 
 
 
--- LargePrefixTable Dict.empty
+-- create prefixes
+
+
+type Prefix
+    = Prefix Int PrefixCode
+    | Trailing1 Int
+    | Trailing2 Int Int
+    | OutOfBounds
+
+
+prefixAt : Int -> ByteArray -> Prefix
+prefixAt k input =
+    let
+        size =
+            ByteArray.length input
+    in
+    if k + 2 >= size then
+        if k >= size then
+            OutOfBounds
+
+        else if k + 1 >= size then
+            case ByteArray.get k input of
+                Nothing ->
+                    OutOfBounds
+
+                Just value ->
+                    Trailing1 value
+
+        else
+            case ByteArray.get k input of
+                Nothing ->
+                    OutOfBounds
+
+                Just v1 ->
+                    case ByteArray.get (k + 1) input of
+                        Nothing ->
+                            OutOfBounds
+
+                        Just v2 ->
+                            Trailing2 v1 v2
+
+    else
+        -- all within bounds
+        let
+            offset =
+                k
+                    |> remainderBy 4
+
+            internalIndex =
+                k // 4
+        in
+        case offset of
+            0 ->
+                case ByteArray.getInt32 internalIndex input of
+                    Nothing ->
+                        OutOfBounds
+
+                    Just int32 ->
+                        let
+                            code =
+                                Bitwise.shiftRightBy 8 int32
+
+                            first =
+                                Bitwise.shiftRightBy 24 int32
+                                    |> Bitwise.shiftRightZfBy 0
+                                    |> Bitwise.and 0xFF
+                        in
+                        Prefix first (PrefixCode code)
+
+            1 ->
+                case ByteArray.getInt32 internalIndex input of
+                    Nothing ->
+                        OutOfBounds
+
+                    Just int32 ->
+                        let
+                            code =
+                                Bitwise.and 0x00FFFFFF int32
+
+                            first =
+                                Bitwise.shiftRightBy 16 int32
+                                    |> Bitwise.and 0xFF
+                                    |> Bitwise.shiftRightZfBy 0
+                                    |> Bitwise.and 0xFF
+                        in
+                        Prefix first <| PrefixCode code
+
+            2 ->
+                case ByteArray.getInt32 internalIndex input of
+                    Nothing ->
+                        OutOfBounds
+
+                    Just int32 ->
+                        case ByteArray.getInt32 (internalIndex + 1) input of
+                            Nothing ->
+                                OutOfBounds
+
+                            Just nextInt32 ->
+                                let
+                                    code =
+                                        Bitwise.and 0xFFFF int32 |> Bitwise.shiftLeftBy 8 |> Bitwise.or (Bitwise.shiftRightBy 24 nextInt32)
+
+                                    first =
+                                        Bitwise.shiftRightBy 8 int32
+                                            |> Bitwise.and 0xFF
+                                            |> Bitwise.shiftRightZfBy 0
+                                            |> Bitwise.and 0xFF
+                                in
+                                Prefix first <| PrefixCode code
+
+            _ ->
+                case ByteArray.getInt32 internalIndex input of
+                    Nothing ->
+                        OutOfBounds
+
+                    Just int32 ->
+                        case ByteArray.getInt32 (internalIndex + 1) input of
+                            Nothing ->
+                                OutOfBounds
+
+                            Just nextInt32 ->
+                                let
+                                    code =
+                                        Bitwise.and 0xFF int32 |> Bitwise.shiftLeftBy 16 |> Bitwise.or (Bitwise.shiftRightBy 16 nextInt32)
+
+                                    first =
+                                        Bitwise.and 0xFF int32
+                                            |> Bitwise.shiftRightZfBy 0
+                                            |> Bitwise.and 0xFF
+                                in
+                                Prefix first <| PrefixCode code
