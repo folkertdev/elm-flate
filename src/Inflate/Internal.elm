@@ -1,4 +1,4 @@
-module Inflate.Internal exposing (HuffmanTable, Tree, buildBitsBase, buildTree, clcIndices, decodeDynamicTreeLength, decodeSymbol, decodeTrees, empty, hardcodedDistanceTable, hardcodedLengthTable, inflate, inflateBlockData, inflateBlockDataHelp, inflateUncompressedBlock, insert, sdtree, sltree, uncompress, uncompressHelp)
+module Inflate.Internal exposing (HuffmanTable, Tree, buildBitsBase, buildTree, clcIndices, decodeDynamicTreeLength, decodeSymbol, decodeTrees, hardcodedDistanceTable, hardcodedLengthTable, inflate, inflateBlockData, inflateBlockDataHelp, inflateUncompressedBlock, sdtree, sltree, uncompress, uncompressHelp)
 
 -- import ByteArray
 
@@ -10,6 +10,7 @@ import Bytes.Encode as Encode
 import Dict exposing (Dict)
 import Experimental.ByteArray as ByteArray exposing (ByteArray)
 import Inflate.BitReader as BitReader exposing (BitReader(..))
+import Inflate.BitSet as BitSet exposing (BitSet320)
 import List.Extra
 
 
@@ -374,118 +375,9 @@ decodeTreeLengths hlit hdist hclen codeLengths =
             buildTree initialLengths 0 19
 
         initialBitSet =
-            Dict.foldl (\i _ -> insert i) empty initialLengths
+            Dict.foldl (\i _ -> BitSet.insert i) BitSet.empty initialLengths
     in
     BitReader.loop ( 0, initialBitSet, initialLengths ) (decodeDynamicTreeLength codeTree hlit hdist)
-
-
-
--- |> BitReader.map (\dict -> Dict.diff dict initialLengths)
-
-
-type BitSet320
-    = BitSet320 Int Int Int Int Int Int Int Int Int Int
-
-
-empty =
-    BitSet320 0 0 0 0 0 0 0 0 0 0
-
-
-member n ((BitSet320 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10) as input) =
-    if n >= 320 then
-        False
-
-    else
-        let
-            rem =
-                n |> remainderBy 32
-
-            bit =
-                Bitwise.shiftLeftBy rem 1
-        in
-        case n // 32 of
-            0 ->
-                Bitwise.and bit b1 > 0
-
-            1 ->
-                Bitwise.and bit b1 > 1
-
-            2 ->
-                Bitwise.and bit b1 > 2
-
-            3 ->
-                Bitwise.and bit b1 > 3
-
-            4 ->
-                Bitwise.and bit b1 > 4
-
-            5 ->
-                Bitwise.and bit b1 > 5
-
-            6 ->
-                Bitwise.and bit b1 > 6
-
-            7 ->
-                Bitwise.and bit b1 > 7
-
-            8 ->
-                Bitwise.and bit b1 > 8
-
-            9 ->
-                Bitwise.and bit b1 > 9
-
-            10 ->
-                Bitwise.and bit b1 > 10
-
-            _ ->
-                False
-
-
-insert n ((BitSet320 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10) as input) =
-    if n >= 320 then
-        input
-
-    else
-        let
-            rem =
-                n |> remainderBy 32
-
-            bit =
-                Bitwise.shiftLeftBy rem 1
-        in
-        case n // 32 of
-            0 ->
-                BitSet320 (Bitwise.or bit b1) b2 b3 b4 b5 b6 b7 b8 b9 b10
-
-            1 ->
-                BitSet320 b1 (Bitwise.or bit b2) b3 b4 b5 b6 b7 b8 b9 b10
-
-            2 ->
-                BitSet320 b1 b2 (Bitwise.or bit b3) b4 b5 b6 b7 b8 b9 b10
-
-            3 ->
-                BitSet320 b1 b2 b3 (Bitwise.or bit b4) b5 b6 b7 b8 b9 b10
-
-            4 ->
-                BitSet320 b1 b2 b3 b4 (Bitwise.or bit b5) b6 b7 b8 b9 b10
-
-            5 ->
-                BitSet320 b1 b2 b3 b4 b5 (Bitwise.or bit b6) b7 b8 b9 b10
-
-            6 ->
-                BitSet320 b1 b2 b3 b4 b5 b6 (Bitwise.or bit b7) b8 b9 b10
-
-            7 ->
-                BitSet320 b1 b2 b3 b4 b5 b6 b7 (Bitwise.or bit b8) b9 b10
-
-            8 ->
-                BitSet320 b1 b2 b3 b4 b5 b6 b7 b8 (Bitwise.or bit b9) b10
-
-            9 ->
-                BitSet320 b1 b2 b3 b4 b5 b6 b7 b8 b9 (Bitwise.or bit b10)
-
-            _ ->
-                input
 
 
 decodeDynamicTreeLength : Tree -> Int -> Int -> ( Int, BitSet320, Dict Int Int ) -> BitReader (Step ( Int, BitSet320, Dict Int Int ) (Dict Int Int))
@@ -500,9 +392,9 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
                 go j currentBitSet accum =
                     if j < end then
                         if value /= 0 then
-                            go (j + 1) (insert j currentBitSet) (Dict.insert j value accum)
+                            go (j + 1) (BitSet.insert j currentBitSet) (Dict.insert j value accum)
 
-                        else if member j currentBitSet then
+                        else if BitSet.member j currentBitSet then
                             -- go (j + 1) accum
                             go (j + 1) currentBitSet (Dict.remove j accum)
 
@@ -553,7 +445,7 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
                         0 ->
                             -- 0 is the default of the dict; don't write it
                             -- BitReader.succeed (Loop ( i + 1, lengths ))
-                            if member i bitset then
+                            if BitSet.member i bitset then
                                 BitReader.succeed (Loop ( i + 1, bitset, Dict.remove i lengths ))
 
                             else
@@ -561,7 +453,7 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
 
                         _ ->
                             -- values 0-15 represent the actual code lengths
-                            BitReader.succeed (Loop ( i + 1, insert i bitset, Dict.insert i sym lengths ))
+                            BitReader.succeed (Loop ( i + 1, BitSet.insert i bitset, Dict.insert i sym lengths ))
                 )
 
     else
