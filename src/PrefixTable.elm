@@ -1,4 +1,4 @@
-module PrefixTable exposing (Prefix(..), PrefixCode, PrefixTable, createPrefix, insert, length, new, prefixAt)
+module PrefixTable exposing (Prefix(..), PrefixCode, PrefixTable, insert, new, prefixAt)
 
 import Array exposing (Array)
 import Bitwise
@@ -27,23 +27,6 @@ type PrefixCode
     = PrefixCode Int
 
 
-createPrefix : Int -> Int -> Int -> PrefixCode
-createPrefix a b c =
-    Bitwise.shiftLeftBy 16 a
-        |> Bitwise.or (Bitwise.or (Bitwise.shiftLeftBy 8 b) c)
-        |> PrefixCode
-
-
-length : PrefixTable -> Int
-length table =
-    case table of
-        Small dict ->
-            Dict.size dict
-
-        Large _ ->
-            -1
-
-
 new : Int -> PrefixTable
 new nbytes =
     if nbytes < max_window_size then
@@ -66,51 +49,36 @@ insert (PrefixCode prefix) position ptable =
 
         Large (LargePrefixTable array) ->
             let
-                -- ( p0, p1, p2 ) = prefix
-                i =
-                    -- Bitwise.shiftLeftBy 8 p0 + p1
+                index =
                     Bitwise.shiftRightBy 8 prefix
-
-                p2 =
-                    Bitwise.and 0xFF prefix
             in
-            case Array.get i array of
+            case Array.get index array of
                 Nothing ->
                     ( ptable, Nothing )
 
                 Just positions ->
-                    let
-                        size =
-                            List.length positions
+                    insertInList index array (Bitwise.and 0xFF prefix) position positions []
 
-                        go2 remaining accum =
-                            case remaining of
-                                [] ->
-                                    let
-                                        newPositions =
-                                            List.reverse (( p2, position ) :: accum)
-                                    in
-                                    ( Large (LargePrefixTable (Array.set i newPositions array)), Nothing )
 
-                                (( key, oldValue ) as current) :: rest ->
-                                    if key == p2 then
-                                        let
-                                            newPositions =
-                                                List.reverse accum ++ (( key, position ) :: rest)
-                                        in
-                                        ( Large (LargePrefixTable (Array.set i newPositions array)), Just oldValue )
+insertInList i array p2 position remaining accum =
+    case remaining of
+        [] ->
+            let
+                newPositions =
+                    ( p2, position ) :: accum
+            in
+            ( Large (LargePrefixTable (Array.set i newPositions array)), Nothing )
 
-                                    else if (p2 - key) > 0 then
-                                        let
-                                            newPositions =
-                                                List.reverse accum ++ (( p2, position ) :: rest)
-                                        in
-                                        ( Large (LargePrefixTable (Array.set i newPositions array)), Nothing )
+        (( key, oldValue ) as current) :: rest ->
+            if (key - p2) == 0 then
+                let
+                    newPositions =
+                        accum ++ (( key, position ) :: rest)
+                in
+                ( Large (LargePrefixTable (Array.set i newPositions array)), Just oldValue )
 
-                                    else
-                                        go2 rest (current :: accum)
-                    in
-                    go2 positions []
+            else
+                insertInList i array p2 position rest (current :: accum)
 
 
 type LargePrefixTable
@@ -132,6 +100,11 @@ type Prefix
     | OutOfBounds
 
 
+{-| Create a "hash" for a position, based on the byte and two following bytes.
+
+This function uses lowlevel ByteArray access to minimize the number of `Array.get`s
+
+-}
 prefixAt : Int -> ByteArray -> Prefix
 prefixAt k input =
     let

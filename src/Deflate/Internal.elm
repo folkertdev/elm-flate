@@ -180,7 +180,6 @@ compress maybeWindowSize buf =
         Just windowSize ->
             buf
                 |> LZ77.encodeWithOptions { windowSize = windowSize }
-                |> Array.fromList
                 |> Array.map codeToSymbol
                 |> Array.push Symbol.EndOfBlock
 

@@ -1,4 +1,48 @@
-module Experimental.ByteArray exposing (ByteArray, copyToBack, empty, fromBytes, fromList, get, getInt32, length, longestCommonPrefix, push, set, toBytes, toList)
+module Experimental.ByteArray exposing
+    ( ByteArray
+    , empty
+    , length, get, getInt32
+    , set, push, copyToBack
+    , fromList, toList, fromBytes, toBytes
+    , foldl, foldr
+    , longestCommonPrefix
+    )
+
+{-| A `ByteArray` type
+
+The idea of this array type is to store 4 bytes in one integer value. That means storage is much more compact, and array operations are faster because there are fewer elements to go through.
+
+
+# ByteArrays
+
+@docs ByteArray
+
+
+# Creation
+
+@docs empty, initialize, repeat
+
+
+# Query
+
+@docs isEmpty, length, get, getInt32
+
+
+# Manipulate
+
+@docs set, update, push, copyToBack
+
+
+# Conversion
+
+@docs fromList, toList, fromBytes, toBytes
+
+
+# Transform
+
+@docs foldl, foldr
+
+-}
 
 import Array exposing (Array)
 import Bitwise
@@ -7,17 +51,130 @@ import Bytes.Decode as Decode exposing (Decoder, Step(..))
 import Bytes.Encode as Encode
 
 
+type ByteArray
+    = ByteArray (Array Int) Int Int
+
+
 fromList : List Int -> ByteArray
 fromList =
     List.foldl push empty
 
 
+toList : ByteArray -> List Int
 toList barray =
-    List.filterMap (\i -> get i barray) (List.range 0 (length barray - 1))
+    foldr (::) [] barray
 
 
-type ByteArray
-    = ByteArray (Array Int) Int Int
+foldl : (Int -> b -> b) -> b -> ByteArray -> b
+foldl folder initial (ByteArray array finalSize finalBytes) =
+    let
+        internalFolder int32 accum =
+            let
+                b1 =
+                    Bitwise.shiftRightZfBy 24 int32
+
+                b2 =
+                    Bitwise.shiftRightZfBy 16 int32 |> Bitwise.and 0xFF
+
+                b3 =
+                    Bitwise.shiftRightZfBy 8 int32 |> Bitwise.and 0xFF
+
+                b4 =
+                    int32 |> Bitwise.and 0xFF
+            in
+            accum
+                |> folder b1
+                |> folder b2
+                |> folder b3
+                |> folder b4
+    in
+    Array.foldl internalFolder initial array
+        |> (\afterArray ->
+                let
+                    b1 =
+                        Bitwise.shiftRightZfBy 24 finalBytes
+
+                    b2 =
+                        Bitwise.shiftRightZfBy 16 finalBytes |> Bitwise.and 0xFF
+
+                    b3 =
+                        Bitwise.shiftRightZfBy 8 finalBytes |> Bitwise.and 0xFF
+
+                    b4 =
+                        finalBytes |> Bitwise.and 0xFF
+                in
+                case finalSize of
+                    1 ->
+                        afterArray |> folder b1
+
+                    2 ->
+                        afterArray |> folder b1 |> folder b2
+
+                    3 ->
+                        afterArray |> folder b1 |> folder b2 |> folder b3
+
+                    4 ->
+                        afterArray |> folder b1 |> folder b2 |> folder b3 |> folder b4
+
+                    _ ->
+                        afterArray
+           )
+
+
+foldr : (Int -> b -> b) -> b -> ByteArray -> b
+foldr folder initial (ByteArray array finalSize finalBytes) =
+    let
+        internalFolder int32 accum =
+            let
+                b1 =
+                    Bitwise.shiftRightZfBy 24 int32
+
+                b2 =
+                    Bitwise.shiftRightZfBy 16 int32 |> Bitwise.and 0xFF
+
+                b3 =
+                    Bitwise.shiftRightZfBy 8 int32 |> Bitwise.and 0xFF
+
+                b4 =
+                    int32 |> Bitwise.and 0xFF
+            in
+            accum
+                |> folder b4
+                |> folder b3
+                |> folder b2
+                |> folder b1
+
+        afterFinal =
+            let
+                b1 =
+                    Bitwise.shiftRightZfBy 24 finalBytes
+
+                b2 =
+                    Bitwise.shiftRightZfBy 16 finalBytes |> Bitwise.and 0xFF
+
+                b3 =
+                    Bitwise.shiftRightZfBy 8 finalBytes |> Bitwise.and 0xFF
+
+                b4 =
+                    finalBytes |> Bitwise.and 0xFF
+            in
+            case finalSize of
+                1 ->
+                    initial |> folder b1
+
+                2 ->
+                    initial |> folder b2 |> folder b1
+
+                3 ->
+                    initial |> folder b3 |> folder b2 |> folder b1
+
+                4 ->
+                    initial |> folder b4 |> folder b3 |> folder b2 |> folder b1
+
+                _ ->
+                    initial
+    in
+    Array.foldr internalFolder afterFinal array
 
 
 empty : ByteArray
@@ -25,6 +182,47 @@ empty =
     ByteArray Array.empty 0 0
 
 
+initialize : Int -> (Int -> Int) -> ByteArray
+initialize size initializer =
+    empty
+
+
+repeat : Int -> Int -> ByteArray
+repeat size value_ =
+    let
+        value =
+            Bitwise.and 0xFF value_
+
+        asInt32 =
+            Bitwise.or
+                (Bitwise.or (Bitwise.shiftLeftBy 24 value) (Bitwise.shiftLeftBy 16 value))
+                (Bitwise.or (Bitwise.shiftLeftBy 8 value) value)
+
+        ( remainderSize, remainderBytes ) =
+            case size |> remainderBy 4 of
+                0 ->
+                    ( 0, 0 )
+
+                1 ->
+                    ( 1, value )
+
+                2 ->
+                    ( 2, Bitwise.or (Bitwise.shiftLeftBy 8 value) value )
+
+                3 ->
+                    ( 3, Bitwise.or (Bitwise.shiftLeftBy 16 value) (Bitwise.or (Bitwise.shiftLeftBy 8 value) value) )
+
+                _ ->
+                    ( 4
+                    , Bitwise.or
+                        (Bitwise.or (Bitwise.shiftLeftBy 24 value) (Bitwise.shiftLeftBy 16 value))
+                        (Bitwise.or (Bitwise.shiftLeftBy 8 value) value)
+                    )
+    in
+    ByteArray (Array.repeat (size // 4) asInt32) remainderSize remainderBytes
+
+
+length : ByteArray -> Int
 length (ByteArray array finalSize finalBytes) =
     case Array.length array * 4 of
         0 ->
@@ -36,7 +234,6 @@ length (ByteArray array finalSize finalBytes) =
 
 get : Int -> ByteArray -> Maybe Int
 get index (ByteArray array finalSize finalBytes) =
-    -- @performance is caching the array length better?
     let
         offset =
             index |> remainderBy 4
@@ -73,10 +270,7 @@ getInt32 index (ByteArray array _ finalBytes) =
         size =
             Array.length array
     in
-    if (index - size) > 0 then
-        Nothing
-
-    else if (index - size) == 0 then
+    if (index - size) == 0 then
         Just finalBytes
 
     else
@@ -140,6 +334,76 @@ set index value ((ByteArray array finalSize finalBytes) as input) =
                 ByteArray (Array.set internalIndex new array) finalSize finalBytes
 
 
+
+-- update
+
+
+update : Int -> (Int -> Int) -> ByteArray -> ByteArray
+update index f ((ByteArray array finalSize finalBytes) as input) =
+    let
+        offset =
+            index |> remainderBy 4
+    in
+    if index >= Array.length array * 4 + finalSize then
+        input
+
+    else if index >= Array.length array * 4 then
+        -- in the final int32
+        let
+            value =
+                finalBytes
+                    |> Bitwise.shiftRightZfBy (8 * (3 - offset))
+                    |> Bitwise.and 0xFF
+                    |> f
+
+            mask =
+                Bitwise.shiftRightZfBy (offset * 8) 0xFF000000
+
+            cleared =
+                Bitwise.and (Bitwise.complement mask) finalBytes
+                    |> Bitwise.shiftRightZfBy 0
+
+            shifted =
+                Bitwise.shiftLeftBy ((3 - offset) * 8) (Bitwise.and 0xFF value)
+
+            new =
+                Bitwise.or cleared shifted
+        in
+        ByteArray array finalSize new
+
+    else
+        let
+            internalIndex =
+                index // 4
+        in
+        case Array.get internalIndex array of
+            Nothing ->
+                input
+
+            Just current ->
+                let
+                    value =
+                        current
+                            |> Bitwise.shiftRightZfBy (8 * (3 - offset))
+                            |> Bitwise.and 0xFF
+                            |> f
+
+                    mask =
+                        Bitwise.shiftRightZfBy (offset * 8) 0xFF000000
+
+                    cleared =
+                        Bitwise.and (Bitwise.complement mask) current
+                            |> Bitwise.shiftRightZfBy 0
+
+                    shifted =
+                        Bitwise.shiftLeftBy ((3 - offset) * 8) (Bitwise.and 0xFF value)
+
+                    new =
+                        Bitwise.or cleared shifted
+                in
+                ByteArray (Array.set internalIndex new array) finalSize finalBytes
+
+
 push value ((ByteArray array finalSize finalBytes) as input) =
     if finalSize == 4 then
         ByteArray (Array.push finalBytes array) 1 (Bitwise.shiftLeftBy 24 value)
@@ -165,6 +429,8 @@ push value ((ByteArray array finalSize finalBytes) as input) =
         ByteArray array (finalSize + 1) new
 
 
+{-| Push up to 4 bytes at once.
+-}
 pushMany : Int -> Int -> ByteArray -> ByteArray
 pushMany nbytes value_ ((ByteArray array finalSize finalBytes) as input) =
     let
@@ -296,8 +562,8 @@ toBytes (ByteArray array finalSize finalBytes) =
                     Bitwise.shiftRightZfBy ((4 - finalSize) * 8) finalBytes
             in
             case finalSize of
-                0 ->
-                    []
+                4 ->
+                    [ Encode.unsignedInt32 BE finalBytes ]
 
                 1 ->
                     [ Encode.unsignedInt8 finalInt32
@@ -313,7 +579,7 @@ toBytes (ByteArray array finalSize finalBytes) =
                     ]
 
                 _ ->
-                    [ Encode.unsignedInt32 BE finalBytes ]
+                    []
 
         folder element accum =
             Encode.unsignedInt32 BE element :: accum
@@ -323,6 +589,12 @@ toBytes (ByteArray array finalSize finalBytes) =
         |> Encode.encode
 
 
+{-| The fastest conversion to bytes I've been able to find.
+
+`Decode.map5` is the largest map implemented, so we use that. It turns out that pushes are so expensive
+(partly due to code generation) that an append (and all the allocation etc. that comes with it) is faster.
+
+-}
 fromBytes : Bytes -> ByteArray
 fromBytes buffer =
     case Decode.decode (Decode.loop ( Bytes.width buffer, Array.empty ) fromBytesHelp) buffer of
@@ -334,7 +606,31 @@ fromBytes buffer =
 
 
 fromBytesHelp ( remaining, array ) =
-    if remaining >= 20 then
+    if remaining >= 40 then
+        -- yes, I profiled this and it is faster
+        Decode.map5
+            (\a b c d e ->
+                Decode.map5
+                    (\f g h i j ->
+                        Loop
+                            ( remaining - 40
+                            , Array.append array (Array.fromList [ a, b, c, d, e, f, g, h, i, j ])
+                            )
+                    )
+                    (Decode.unsignedInt32 BE)
+                    (Decode.unsignedInt32 BE)
+                    (Decode.unsignedInt32 BE)
+                    (Decode.unsignedInt32 BE)
+                    (Decode.unsignedInt32 BE)
+            )
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+            (Decode.unsignedInt32 BE)
+            |> Decode.andThen identity
+
+    else if remaining >= 20 then
         Decode.map5
             (\a b c d e ->
                 Loop
@@ -381,6 +677,8 @@ fromBytesHelp ( remaining, array ) =
                     Decode.unsignedInt8
 
 
+{-| Find the longest common prefix
+-}
 longestCommonPrefix : Int -> Int -> Int -> ByteArray -> Int
 longestCommonPrefix max_length i j array =
     let
@@ -414,6 +712,9 @@ longestCommonPrefixLoop i j limit accum array =
         accum
 
 
+{-| minimize the number of gets. not sure if this is correct at the moment. most of the runs that lz77 finds are short anyway.
+From my tests this is not actually the bottleneck: the prefixtable is.
+-}
 fasterCommonPrefixLoop max_length i j prefixLength value1 value2 cache1 cache2 offset1 offset2 barray =
     if value1 == value2 && max_length + 4 <= max_length then
         case getInt32 (i // 4) barray of
