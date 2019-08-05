@@ -1,4 +1,4 @@
-module Inflate.Internal exposing (HuffmanTable, Tree, buildBitsBase, buildTree, clcIndices, decodeDynamicTreeLength, decodeSymbol, decodeTrees, hardcodedDistanceTable, hardcodedLengthTable, inflate, inflateBlockData, inflateBlockDataHelp, inflateUncompressedBlock, sdtree, sltree, uncompress, uncompressHelp)
+module Inflate.Internal exposing (HuffmanTable, Tree, buildBitsBase, buildTree, clcIndices, decodeDynamicTreeLength, decodeSymbol, decodeTrees, hardcodedDistanceTable, hardcodedLengthTable, huffmanTableToList, inflate, inflateBlockData, inflateBlockDataHelp, inflateUncompressedBlock, sdtree, sltree, uncompress, uncompressHelp)
 
 -- import ByteArray
 
@@ -80,6 +80,11 @@ uncompressHelp output =
 
 type HuffmanTable
     = HuffmanTable (Array { bits : Int, base : Int })
+
+
+huffmanTableToList : HuffmanTable -> List { bits : Int, base : Int }
+huffmanTableToList (HuffmanTable table) =
+    Array.toList table
 
 
 readHuffmanTable : Int -> HuffmanTable -> Maybe { bits : Int, base : Int }
