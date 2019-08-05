@@ -78,31 +78,13 @@ uncompressHelp output =
         |> BitReader.andThen identity
 
 
-type alias HuffmanTable =
-    Array { bits : Int, base : Int }
+type HuffmanTable
+    = HuffmanTable (Array { bits : Int, base : Int })
 
 
 readHuffmanTable : Int -> HuffmanTable -> Maybe { bits : Int, base : Int }
-readHuffmanTable index table =
+readHuffmanTable index (HuffmanTable table) =
     Array.get index table
-
-
-
-{-
-   case Array.get index table of
-       Nothing ->
-           Nothing
-
-       Just value ->
-           let
-               bits =
-                   Bitwise.shiftRightBy 8 value
-
-               base =
-                   Bitwise.and 0xFF value
-           in
-           Just { bits = bits, base = base }
--}
 
 
 type alias Tree =
@@ -129,14 +111,14 @@ buildBitsBase delta first =
             Array.foldl folder ( first, Array.empty ) bits
                 |> Tuple.second
     in
-    base
+    HuffmanTable base
 
 
 hardcodedLengthTable : HuffmanTable
 hardcodedLengthTable =
     buildBitsBase 4 3
         -- fix a special case
-        |> Array.set 28 { bits = 0, base = 258 }
+        |> (\(HuffmanTable array) -> HuffmanTable (Array.set 28 { bits = 0, base = 258 } array))
 
 
 hardcodedDistanceTable : HuffmanTable
@@ -182,29 +164,24 @@ lengthsToDict lengths =
 buildTree : Dict Int Int -> Int -> Int -> Tree
 buildTree lengths offset num =
     let
-        lengthsDict =
-            lengths
-
         tableDict =
-            Dict.foldl
-                (\key value accum ->
-                    if key >= offset && key < (num + offset) then
-                        Dict.update value
-                            (\maybeValue ->
-                                case maybeValue of
-                                    Nothing ->
-                                        Just 1
+            let
+                updater maybeValue =
+                    case maybeValue of
+                        Nothing ->
+                            Just 1
 
-                                    Just v ->
-                                        Just (v + 1)
-                            )
-                            accum
+                        Just v ->
+                            Just (v + 1)
+
+                folder key value accum =
+                    if key >= offset && key < (num + offset) then
+                        Dict.update value updater accum
 
                     else
                         accum
-                )
-                Dict.empty
-                lengthsDict
+            in
+            Dict.foldl folder Dict.empty lengths
 
         newTable =
             let
@@ -233,7 +210,7 @@ buildTree lengths offset num =
 
         go2 i currentTranslation currentOffsets =
             if (i - num) < 0 then
-                case Dict.get (offset + i) lengthsDict of
+                case Dict.get (offset + i) lengths of
                     Nothing ->
                         go2 (i + 1) currentTranslation currentOffsets
 
@@ -316,7 +293,6 @@ decodeSymbolInnerLoop table cur tag bitsAvailable sum =
                 decodeSymbolInnerLoop rest newerCur newTag (bitsAvailable - 1) newSum
 
             else
-                -- ( ( newerCur, newTag ), newLen, newSum )
                 { cur = newerCur, tag = newTag, bitsAvailable = bitsAvailable - 1, sum = newSum }
 
 
@@ -380,39 +356,39 @@ decodeTreeLengths hlit hdist hclen codeLengths =
     BitReader.loop ( 0, initialBitSet, initialLengths ) (decodeDynamicTreeLength codeTree hlit hdist)
 
 
+copySegment : Int -> Int -> BitSet320 -> Dict Int Int -> Int -> ( Int, BitSet320, Dict Int Int )
+copySegment i value bitset lengths length =
+    let
+        end =
+            i + length
+
+        go j currentBitSet accum =
+            if (j - end) < 0 then
+                if value /= 0 then
+                    go (j + 1) (BitSet.insert j currentBitSet) (Dict.insert j value accum)
+
+                else if BitSet.member j currentBitSet then
+                    -- overwrite a set value with 0 means removing it
+                    go (j + 1) (BitSet.remove j currentBitSet) (Dict.remove j accum)
+
+                else
+                    -- if j is not set, and the value is 0, don't bother setting it
+                    go (j + 1) currentBitSet accum
+
+            else
+                ( currentBitSet, accum )
+
+        ( newBitSet, newLengths ) =
+            go i bitset lengths
+    in
+    ( i + length
+    , newBitSet
+    , newLengths
+    )
+
+
 decodeDynamicTreeLength : Tree -> Int -> Int -> ( Int, BitSet320, Dict Int Int ) -> BitReader (Step ( Int, BitSet320, Dict Int Int ) (Dict Int Int))
 decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
-    let
-        copySegment : Int -> Int -> Step ( Int, BitSet320, Dict Int Int ) a
-        copySegment value length =
-            let
-                end =
-                    i + length
-
-                go j currentBitSet accum =
-                    if j < end then
-                        if value /= 0 then
-                            go (j + 1) (BitSet.insert j currentBitSet) (Dict.insert j value accum)
-
-                        else if BitSet.member j currentBitSet then
-                            -- go (j + 1) accum
-                            go (j + 1) currentBitSet (Dict.remove j accum)
-
-                        else
-                            go (j + 1) currentBitSet accum
-
-                    else
-                        ( currentBitSet, accum )
-
-                ( newBitSet, newLengths ) =
-                    go i bitset lengths
-            in
-            Loop
-                ( i + length
-                , newBitSet
-                , newLengths
-                )
-    in
     if i < hlit + hdist then
         let
             table =
@@ -430,17 +406,17 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
                                     Dict.get (i - 1) lengths |> Maybe.withDefault 0
                             in
                             BitReader.readBits 2 3
-                                |> BitReader.map (copySegment prev)
+                                |> BitReader.map (copySegment i prev bitset lengths >> Loop)
 
                         17 ->
                             --  repeat code length 0 for 3-10 times (read 3 bits)
                             BitReader.readBits 3 3
-                                |> BitReader.map (copySegment 0)
+                                |> BitReader.map (copySegment i 0 bitset lengths >> Loop)
 
                         18 ->
                             -- repeat code length 0 for 11-138 times (read 7 bits)
                             BitReader.readBits 7 11
-                                |> BitReader.map (copySegment 0)
+                                |> BitReader.map (copySegment i 0 bitset lengths >> Loop)
 
                         0 ->
                             -- 0 is the default of the dict; don't write it
@@ -472,18 +448,11 @@ inflateBlockData trees outputLength output =
 inflateBlockDataHelp : { literal : Tree, distance : Tree } -> ( Int, ByteArray ) -> BitReader (Step ( Int, ByteArray ) ByteArray)
 inflateBlockDataHelp trees ( outputLength, output ) =
     let
-        lt =
-            trees.literal
-
-        dt =
-            trees.distance
-    in
-    let
         table =
-            List.tail lt.table
+            List.tail trees.literal.table
                 |> Maybe.withDefault []
     in
-    decodeSymbol table lt
+    decodeSymbol table trees.literal
         |> BitReader.andThen
             (\symbol ->
                 -- check for end of block
@@ -494,80 +463,25 @@ inflateBlockDataHelp trees ( outputLength, output ) =
                     BitReader.succeed (Loop ( outputLength + 1, ByteArray.push symbol output ))
 
                 else
-                    BitReader.map2 (\length offset -> Loop ( outputLength + length, ByteArray.copyToBack offset length output {- copyLoop offset length offset outputLength output -} ))
+                    BitReader.map2 (\length offset -> Loop ( outputLength + length, ByteArray.copyToBack offset length output ))
                         (decodeLength symbol)
-                        (decodeOffset outputLength dt)
+                        (decodeOffset outputLength trees.distance)
             )
-
-
-copyLoop : Int -> Int -> Int -> Int -> Array a -> Array a
-copyLoop offs length i destLen arr =
-    if (i - (offs + length)) < 0 then
-        copyLoop offs
-            length
-            (i + 1)
-            (destLen + 1)
-            (let
-                source =
-                    i
-
-                destination =
-                    destLen
-             in
-             case Array.get source arr of
-                Nothing ->
-                    arr
-
-                Just value ->
-                    let
-                        size =
-                            Array.length arr
-                    in
-                    if (destination - size) < 0 then
-                        Array.set destination value arr
-
-                    else if (destination - size) == 0 then
-                        Array.push value arr
-
-                    else
-                        arr
-            )
-
-    else
-        arr
-
-
-copy : Int -> Int -> Array a -> Array a
-copy source destination arr =
-    case Array.get source arr of
-        Nothing ->
-            arr
-
-        Just value ->
-            let
-                size =
-                    Array.length arr
-            in
-            if (destination - size) < 0 then
-                Array.set destination value arr
-
-            else if (destination - size) == 0 then
-                Array.push value arr
-
-            else
-                arr
 
 
 decodeLength : Int -> BitReader Int
 decodeLength symbol =
     case readHuffmanTable (symbol - 257) hardcodedLengthTable of
         Nothing ->
-            BitReader.error
-                ("index out of bounds in hardcodedLengthTable: requested index "
+            BitReader.error <|
+                let
+                    (HuffmanTable internal) =
+                        hardcodedDistanceTable
+                in
+                "index out of bounds in hardcodedLengthTable: requested index "
                     ++ String.fromInt (symbol - 257)
                     ++ "but hardcodedLengthTable has length "
-                    ++ String.fromInt (Array.length hardcodedLengthTable)
-                )
+                    ++ String.fromInt (Array.length internal)
 
         Just entry ->
             BitReader.readBits entry.bits entry.base
@@ -585,20 +499,18 @@ decodeOffset outputLength dt =
             (\distance ->
                 case readHuffmanTable distance hardcodedDistanceTable of
                     Nothing ->
-                        BitReader.error
-                            ("index out of bounds in hardcodedDistanceTable: requested index "
+                        BitReader.error <|
+                            let
+                                (HuffmanTable internal) =
+                                    hardcodedDistanceTable
+                            in
+                            "index out of bounds in hardcodedDistanceTable: requested index "
                                 ++ String.fromInt distance
                                 ++ "but hardcodedLengthTable has length "
-                                ++ String.fromInt (Array.length hardcodedDistanceTable)
-                            )
+                                ++ String.fromInt (Array.length internal)
 
                     Just entry ->
                         BitReader.readBits entry.bits entry.base
-                            {-
-                               TODO is this correct?
-                               We know that the blocks are independent https://www.w3.org/Graphics/PNG/RFC-1951
-                               But the offset is probably still given for the whole (across blocks)
-                            -}
                             |> BitReader.map (\v -> outputLength - v)
             )
 
