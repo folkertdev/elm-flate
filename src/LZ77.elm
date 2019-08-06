@@ -9,8 +9,13 @@ module LZ77 exposing
     LZ77.encode (Encode.encode (Encode.string "aaaaa"))
         --> [ Literal 97, Pointer 4 1 ]
 
-The character `a` occurs 5 times, which is encoded as "the byte 97; go back 1 position and read 4 bytes there, putting them onto the end of the stream".
+The character `a` occurs 5 times, which is encoded as:
+
+  - the byte 97 (the ascii code for `a`)
+  - go back 1 position and read 4 bytes there, putting them onto the end of the stream
+
 Note that the pointer tries to read 4 bytes, even though the output stream at that point only has length 1. This is fine: the elements are copied over one by one.
+The general concept behind this kind of compression is [run-length encoding](https://en.wikipedia.org/wiki/Run-length_encoding).
 
 @docs encode, decode
 @docs Code
@@ -38,6 +43,8 @@ encode buffer =
 
   - **window size**: The window size is an how far back a `Pointer` can jump. A bigger window size gives better compression, but requires more data in memory.
     That is almost never a problem nowadays though, so `encode` uses the maximum window size that LZ77 supports.
+
+> **Note**: decreasing the window size doesn't change the performance that much in elm. The bottleneck is in keeping track of matches in a large array, and the size of that array is constant.
 
 -}
 encodeWithOptions : { windowSize : Int } -> Bytes -> Array Code

@@ -51,6 +51,10 @@ The deflate format is used in common file formats like gzip, png, and woff.
 
 ## Checksums
 
+Checksums are simple hashes that are used to make check that the decoded data is the same as the encoded data.
+The gzip and zlib formats calculate the checksum over the data they encode, and put the value into the output.
+When decoding, the checksum is also calculated for the decoded data. The two values must be the same.
+
 @docs adler32, crc32
 
 -}
@@ -98,18 +102,15 @@ deflate =
         Encode.encode (Encode.string "foo")
 
     deflateWithOptions Raw data
-        |> ByteArray.fromBytes
-        --> Array.fromList [1,3,0,252,-1,102,111,111]
+        --> [1,3,0,252,-1,102,111,111]
 
 
     deflateWithOptions (Static NoCompression) data
-        |> ByteArray.fromBytes
-        --> Array.fromList [75,203,207,7,0]
+        --> [75,203,207,7,0]
 
 
     deflateWithOptions (Dynamic (WithWindowSize LZ77.maxWindowSize)) data
-        |> ByteArray.fromBytes
-        --> Array.fromList [5,192,33,1,0,0,0,128,-96,183,86,254,55,137,1]
+        --> [5,192,33,1,0,0,0,128,-96,183,86,254,55,137,1]
 
 -}
 deflateWithOptions : Encoding -> Bytes -> Bytes
