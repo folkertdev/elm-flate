@@ -74,6 +74,10 @@ inflate buffer =
                                 Adler32.adler32 resultBuffer
                         in
                         if sliced.a32 /= found then
+                            let
+                                _ =
+                                    Debug.log "after" (Bytes.width resultBuffer)
+                            in
                             Err (InvalidAdler { found = found, shouldBe = sliced.a32 })
 
                         else

@@ -1,5 +1,7 @@
 module Issue1 exposing (suite)
 
+import Bytes exposing (Bytes)
+import Bytes.Decode as Decode
 import Bytes.Encode as Encode
 import Expect
 import Flate
@@ -7,16 +9,73 @@ import Test exposing (..)
 
 
 suite =
-    test "roundtrip" <|
-        \_ ->
-            data
-                |> Flate.deflateZlib
-                |> Flate.inflateZlib
-                |> Expect.notEqual Nothing
+    describe "issue 1"
+        [ test "sanity check" <|
+            \_ ->
+                [ 1, 2, 3, 4, 5, 6 ]
+                    |> encodeUnsignedInt8
+                    |> Flate.deflateZlib
+                    |> Flate.inflateZlib
+                    |> Expect.notEqual Nothing
+        , test "roundtrip" <|
+            \_ ->
+                data
+                    |> logWidth "before"
+                    |> Flate.deflateZlib
+                    |> Flate.inflateZlib
+                    |> Expect.notEqual Nothing
+        , only <|
+            test "vanilla roundtrip" <|
+                \_ ->
+                    data
+                        |> logWidth "before"
+                        |> Flate.deflate
+                        |> Flate.inflate
+                        |> (\v ->
+                                let
+                                    _ =
+                                        Debug.log "kind of done" ()
+                                in
+                                v
+                           )
+                        |> Maybe.andThen (\b -> Decode.decode (unsignedInt8List (Bytes.width b)) b)
+                        |> (\v ->
+                                let
+                                    _ =
+                                        Debug.log "decoded" ()
+                                in
+                                v
+                           )
+                        |> Expect.equal (Just rawData)
+        ]
+
+
+logWidth name v =
+    let
+        _ =
+            Debug.log name (Bytes.width v)
+    in
+    v
+
+
+encodeUnsignedInt8 v =
+    Encode.encode (Encode.sequence (List.map Encode.unsignedInt8 v))
 
 
 data =
     Encode.encode (Encode.sequence (List.map Encode.unsignedInt8 rawData))
+
+
+helpHelp ( n, accum ) =
+    if n > 0 then
+        Decode.map (\new -> Decode.Loop ( n - 1, new :: accum )) Decode.unsignedInt8
+
+    else
+        Decode.succeed (Decode.Done (List.reverse accum))
+
+
+unsignedInt8List n =
+    Decode.loop ( n, [] ) helpHelp
 
 
 rawData =
