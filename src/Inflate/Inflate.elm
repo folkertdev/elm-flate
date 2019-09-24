@@ -85,10 +85,6 @@ inflateZLib : Bytes -> Maybe Bytes
 inflateZLib buffer =
     case ZLib.inflate buffer of
         Err e ->
-            let
-                _ =
-                    Debug.log "error in zlib" e
-            in
             Nothing
 
         Ok value ->
