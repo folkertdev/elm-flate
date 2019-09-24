@@ -5,9 +5,15 @@ import Bytes.Decode as Decode
 import Bytes.Encode as Encode
 import Expect
 import Flate
+import LZ77
 import Test exposing (..)
 
 
+{-| Solution description
+
+bit values were not correctly masked in the prefix table insert operation. This could cause overflow (e.g. -1 or stuff like that) that would give incorrect matches.
+
+-}
 suite =
     describe "issue 1"
         [ test "sanity check" <|
@@ -20,33 +26,44 @@ suite =
         , test "roundtrip" <|
             \_ ->
                 data
-                    |> logWidth "before"
                     |> Flate.deflateZlib
                     |> Flate.inflateZlib
                     |> Expect.notEqual Nothing
-        , only <|
-            test "vanilla roundtrip" <|
-                \_ ->
-                    data
-                        |> logWidth "before"
-                        |> Flate.deflate
-                        |> Flate.inflate
-                        |> (\v ->
-                                let
-                                    _ =
-                                        Debug.log "kind of done" ()
-                                in
-                                v
-                           )
-                        |> Maybe.andThen (\b -> Decode.decode (unsignedInt8List (Bytes.width b)) b)
-                        |> (\v ->
-                                let
-                                    _ =
-                                        Debug.log "decoded" ()
-                                in
-                                v
-                           )
-                        |> Expect.equal (Just rawData)
+        , test "vanilla roundtrip lz77" <|
+            \_ ->
+                let
+                    raw =
+                        rawData
+                            |> List.take n
+                            |> List.drop 8
+                            |> Debug.log "data"
+
+                    n =
+                        -- 138
+                        138
+
+                    expected =
+                        raw
+                            |> List.take n
+                            |> Just
+
+                    given =
+                        raw
+                            |> List.take n
+                            |> encodeUnsignedInt8
+                            |> LZ77.encode
+                            |> LZ77.decode
+                            |> (\b -> Decode.decode (unsignedInt8List (Bytes.width b)) b)
+                in
+                given
+                    |> Expect.equal expected
+        , test "vanilla roundtrip" <|
+            \_ ->
+                data
+                    |> Flate.deflate
+                    |> Flate.inflate
+                    |> Maybe.andThen (\b -> Decode.decode (unsignedInt8List (Bytes.width b)) b)
+                    |> Expect.equal (Just rawData)
         ]
 
 

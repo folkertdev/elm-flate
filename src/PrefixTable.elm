@@ -37,7 +37,12 @@ new nbytes =
 
 
 insert : PrefixCode -> Int -> PrefixTable -> ( PrefixTable, Maybe Int )
-insert (PrefixCode prefix) position ptable =
+insert (PrefixCode prefix_) position ptable =
+    let
+        prefix =
+            Bitwise.shiftRightZfBy 0 prefix_
+                |> Bitwise.and 0x00FFFFFF
+    in
     case ptable of
         Small dict ->
             case Dict.get prefix dict of
@@ -195,7 +200,11 @@ prefixAt k input =
                             Just nextInt32 ->
                                 let
                                     code =
-                                        Bitwise.and 0xFFFF int32 |> Bitwise.shiftLeftBy 8 |> Bitwise.or (Bitwise.shiftRightBy 24 nextInt32)
+                                        Bitwise.and 0xFFFF int32
+                                            |> Bitwise.shiftLeftBy 8
+                                            |> Bitwise.or (Bitwise.shiftRightBy 24 nextInt32 |> Bitwise.and 0xFF)
+                                            |> Bitwise.shiftRightZfBy 0
+                                            |> Bitwise.and 0x00FFFFFF
 
                                     first =
                                         Bitwise.shiftRightBy 8 int32
@@ -218,7 +227,9 @@ prefixAt k input =
                             Just nextInt32 ->
                                 let
                                     code =
-                                        Bitwise.and 0xFF int32 |> Bitwise.shiftLeftBy 16 |> Bitwise.or (Bitwise.shiftRightBy 16 nextInt32)
+                                        Bitwise.and 0xFF int32
+                                            |> Bitwise.shiftLeftBy 16
+                                            |> Bitwise.or (Bitwise.shiftRightBy 16 nextInt32 |> Bitwise.and 0xFFFF)
 
                                     first =
                                         Bitwise.and 0xFF int32
