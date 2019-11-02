@@ -26,11 +26,11 @@ inflate buffer =
 
 uncompress : BitReader (List Bytes)
 uncompress =
-    BitReader.loop [] uncompressHelp
-        |> BitReader.map List.reverse
+    BitReader.loop ByteArray.empty uncompressHelp
+        |> BitReader.map (ByteArray.toBytes >> List.singleton)
 
 
-uncompressHelp : List Bytes -> BitReader (Step (List Bytes) (List Bytes))
+uncompressHelp : ByteArray -> BitReader (Step ByteArray ByteArray)
 uncompressHelp output =
     let
         readTwoBits =
@@ -42,27 +42,15 @@ uncompressHelp output =
                     -- read 5 more bits (i.e. the first byte) without reading extra bytes into the `tag`
                     BitReader.exactly 5 BitReader.getBit
                         |> BitReader.andThen (\_ -> inflateUncompressedBlock)
-                        |> BitReader.map (\v -> v :: output)
+                        |> BitReader.map (\bytes -> ByteArray.appendBytes bytes output)
 
                 1 ->
                     -- use the static huffman trees
-                    let
-                        lengthSoFar =
-                            List.sum (List.map Bytes.width output)
-                    in
-                    inflateBlockData { literal = sltree, distance = sdtree } lengthSoFar ByteArray.empty
-                        |> BitReader.map ByteArray.toBytes
-                        |> BitReader.map (\v -> v :: output)
+                    inflateBlockData { literal = sltree, distance = sdtree } (ByteArray.length output) output
 
                 2 ->
-                    let
-                        lengthSoFar =
-                            List.sum (List.map Bytes.width output)
-                    in
                     decodeTrees
-                        |> BitReader.andThen (\( ltree, dtree ) -> inflateBlockData { literal = ltree, distance = dtree } lengthSoFar ByteArray.empty)
-                        |> BitReader.map ByteArray.toBytes
-                        |> BitReader.map (\v -> v :: output)
+                        |> BitReader.andThen (\( ltree, dtree ) -> inflateBlockData { literal = ltree, distance = dtree } (ByteArray.length output) output)
 
                 _ ->
                     BitReader.error ("invalid block type: " ++ String.fromInt btype ++ " (only 0, 1 and 2 are valid block types)")
