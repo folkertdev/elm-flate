@@ -3,7 +3,8 @@ module Experimental.ByteArray exposing
     , empty
     , length, get, getInt32
     , set, push, copyToBack
-    , fromList, toList, fromBytes, toBytes
+    , fromList, toList
+    , fromBytes, toBytes, appendBytes
     , foldl, foldr
     , longestCommonPrefix
     )
@@ -35,7 +36,8 @@ The idea of this array type is to store 4 bytes in one integer value. That means
 
 # Conversion
 
-@docs fromList, toList, fromBytes, toBytes
+@docs fromList, toList
+@docs fromBytes, toBytes, appendBytes
 
 
 # Transform
@@ -63,6 +65,44 @@ fromList =
 toList : ByteArray -> List Int
 toList barray =
     foldr (::) [] barray
+
+
+appendBytes : Bytes -> ByteArray -> ByteArray
+appendBytes bytes ((ByteArray array finalSize finalBytes) as barray) =
+    let
+        decoder =
+            Decode.loop ( Bytes.width bytes, barray ) appendBytesHelp
+    in
+    case Decode.decode decoder bytes of
+        Just v ->
+            v
+
+        Nothing ->
+            barray
+
+
+appendBytesHelp ( remaining, (ByteArray array finalSize finalBytes) as bytearray ) =
+    if remaining >= 4 then
+        Decode.unsignedInt32 BE
+            |> Decode.map
+                (\new ->
+                    Decode.Loop ( remaining - 4, pushMany 4 new bytearray )
+                )
+
+    else if remaining >= 1 then
+        Decode.unsignedInt8
+            |> Decode.map
+                (\new ->
+                    Decode.Loop ( remaining - 1, push new bytearray )
+                )
+
+    else
+        Decode.succeed (Decode.Done bytearray)
+
+
+pushByte : Int -> Int -> Int
+pushByte small big =
+    Bitwise.or (Bitwise.shiftLeftBy 8 big) small
 
 
 foldl : (Int -> b -> b) -> b -> ByteArray -> b

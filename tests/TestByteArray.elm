@@ -295,6 +295,43 @@ fullSuite =
                         |> ArrayHelp.fromBytes
                         |> Expect.equal (ArrayHelp.toBytes array |> ArrayHelp.fromBytes)
             ]
+        , appendBytesTests
+        ]
+
+
+appendBytesTests =
+    let
+        bytes =
+            [ 1, 2, 3, 4, 5 ]
+                |> List.map Encode.unsignedInt8
+                |> Encode.sequence
+                |> Encode.encode
+    in
+    describe "appendBytes"
+        [ test "add bytes to []" <|
+            \_ ->
+                ByteArray.empty
+                    |> ByteArray.appendBytes bytes
+                    |> ByteArray.toBytes
+                    |> ArrayHelp.fromBytes
+                    |> Expect.equal (Array.fromList [ 1, 2, 3, 4, 5 ])
+        , test "add bytes to [11]" <|
+            \_ ->
+                ByteArray.empty
+                    |> ByteArray.push 11
+                    |> ByteArray.appendBytes bytes
+                    |> ByteArray.toBytes
+                    |> ArrayHelp.fromBytes
+                    |> Expect.equal (Array.fromList [ 11, 1, 2, 3, 4, 5 ])
+        , test "add bytes to [11, 12]" <|
+            \_ ->
+                ByteArray.empty
+                    |> ByteArray.push 11
+                    |> ByteArray.push 12
+                    |> ByteArray.appendBytes bytes
+                    |> ByteArray.toBytes
+                    |> ArrayHelp.fromBytes
+                    |> Expect.equal (Array.fromList [ 11, 12, 1, 2, 3, 4, 5 ])
         ]
 
 
