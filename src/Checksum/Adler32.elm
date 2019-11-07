@@ -10,130 +10,71 @@ a32 =
     { base = 65521, nmax = 5552 }
 
 
-slice : Int -> Bytes -> List Bytes
-slice maxSize buffer =
-    let
-        go ( remainingLength, accum ) =
-            if remainingLength == 0 then
-                Decode.succeed (Decode.Done (List.reverse accum))
-
-            else if remainingLength < maxSize then
-                Decode.bytes remainingLength
-                    |> Decode.map (\final -> Decode.Done (List.reverse (final :: accum)))
-
-            else
-                Decode.bytes maxSize
-                    |> Decode.map (\elem -> Decode.Loop ( remainingLength - maxSize, elem :: accum ))
-    in
-    Decode.decode (Decode.loop ( Bytes.width buffer, [] ) go) buffer
-        |> Maybe.withDefault []
-
-
-slice2 : { bufferSize : Int, maxBlockSize : Int } -> Decoder { s1 : Int, s2 : Int }
-slice2 { bufferSize, maxBlockSize } =
+chunkedFold : { bufferSize : Int, maxBlockSize : Int } -> Decoder { s1 : Int, s2 : Int }
+chunkedFold { bufferSize, maxBlockSize } =
     let
         go { remainingLength, s1, s2 } =
             if remainingLength == 0 then
                 Decode.succeed (Decode.Done { s1 = s1, s2 = s2 })
 
             else if remainingLength < maxBlockSize then
-                helper { remaining = remainingLength, s1 = s1, s2 = s2 }
+                processChunk { remaining = remainingLength, s1 = s1, s2 = s2 }
                     |> Decode.map Decode.Done
 
             else
-                helper { remaining = maxBlockSize, s1 = s1, s2 = s2 }
-                    |> Decode.map (\result -> Decode.Loop { remainingLength = remainingLength - maxBlockSize, s1 = result.s1, s2 = result.s2 })
+                processChunk { remaining = maxBlockSize, s1 = s1, s2 = s2 }
+                    |> Decode.map
+                        (\result ->
+                            Decode.Loop
+                                { remainingLength = remainingLength - maxBlockSize
+                                , s1 = result.s1
+                                , s2 = result.s2
+                                }
+                        )
     in
     Decode.loop { remainingLength = bufferSize, s1 = 1, s2 = 0 } go
 
 
-helper : { remaining : Int, s1 : Int, s2 : Int } -> Decoder { s1 : Int, s2 : Int }
-helper config =
+processChunk : { remaining : Int, s1 : Int, s2 : Int } -> Decoder { s1 : Int, s2 : Int }
+processChunk config =
     Decode.loop config processChunkHelp
 
 
-processChunk : { s1 : Int, s2 : Int } -> Bytes -> Maybe { s1 : Int, s2 : Int }
-processChunk { s1, s2 } buffer =
-    let
-        length =
-            Bytes.width buffer
-    in
-    Decode.decode (helper { remaining = length, s1 = s1, s2 = s2 }) buffer
-
-
 processChunkHelp { remaining, s1, s2 } =
-    case remaining of
-        0 ->
-            let
-                newS1 =
-                    s1 |> remainderBy a32.base
+    if remaining >= 8 then
+        Decode.map2 (step8Bytes remaining s1 s2)
+            (Decode.unsignedInt32 Bytes.BE)
+            (Decode.unsignedInt32 Bytes.BE)
 
-                newS2 =
-                    s2 |> remainderBy a32.base
-            in
-            Decode.succeed (Decode.Done { s1 = newS1, s2 = newS2 })
+    else if remaining > 0 then
+        Decode.map
+            (\byte ->
+                Decode.Loop
+                    { remaining = remaining - 1
+                    , s1 = s1 + byte
+                    , s2 = s1 + byte + s2
+                    }
+            )
+            Decode.unsignedInt8
 
-        _ ->
-            if remaining >= 8 then
-                Decode.map2 (step8Bytes remaining s1 s2)
-                    (Decode.unsignedInt32 Bytes.BE)
-                    (Decode.unsignedInt32 Bytes.BE)
-
-            else
-                Decode.unsignedInt8
-                    |> Decode.map
-                        (\byte ->
-                            let
-                                newS1 =
-                                    s1 + byte
-
-                                newS2 =
-                                    s2 + newS1
-                            in
-                            Decode.Loop { remaining = remaining - 1, s1 = newS1, s2 = newS2 }
-                        )
+    else
+        Decode.succeed
+            (Decode.Done
+                { s1 = s1 |> remainderBy a32.base
+                , s2 = s2 |> remainderBy a32.base
+                }
+            )
 
 
 adler32 : Bytes -> Int
 adler32 buffer =
-    if False then
-        let
-            go s1 s2 slices =
-                case slices of
-                    [] ->
-                        Just (Bitwise.or (Bitwise.shiftLeftBy 16 s2) s1)
-
-                    first :: rest ->
-                        case processChunk { s1 = s1, s2 = s2 } first of
-                            Nothing ->
-                                Nothing
-
-                            Just result ->
-                                go result.s1 result.s2 rest
-        in
-        slice a32.nmax buffer
-            |> go 1 0
-            |> Maybe.withDefault 0
-            |> Bitwise.shiftRightZfBy 0
-
-    else
-        case Decode.decode (slice2 { bufferSize = Bytes.width buffer, maxBlockSize = a32.nmax }) buffer of
-            Nothing ->
-                0
-
-            Just { s1, s2 } ->
-                Bitwise.or (Bitwise.shiftLeftBy 16 s2) s1
-                    |> Bitwise.shiftRightZfBy 0
-
-
-adler32HelpHelp : Bytes -> { s1 : Int, s2 : Int } -> { s1 : Int, s2 : Int }
-adler32HelpHelp first input =
-    case processChunk input first of
+    case Decode.decode (chunkedFold { bufferSize = Bytes.width buffer, maxBlockSize = a32.nmax }) buffer of
         Nothing ->
-            input
+            0
 
-        Just r ->
-            r
+        Just { s1, s2 } ->
+            Bitwise.or (Bitwise.shiftLeftBy 16 s2) s1
+                |> Bitwise.shiftRightZfBy 0
 
 
 step8Bytes : Int -> Int -> Int -> Int -> Int -> Decode.Step { remaining : Int, s1 : Int, s2 : Int } x
