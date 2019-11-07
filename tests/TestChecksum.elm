@@ -37,6 +37,8 @@ adler32 =
     describe "adler32 checksum"
         [ setup 131074 [ 1 ]
         , setup 196611 [ 2 ]
+        , setup 87484452 (List.range 0 1000)
+        , setup 2380301274 (List.range 200 2000)
         , setup 88473791 [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 ]
         , setup 1604860569 (List.concat (List.repeat 1000 [ 1, 2, 3, 4, 5 ]))
         , fuzz fuzzBytes "adler32 output is always > 0" <|
