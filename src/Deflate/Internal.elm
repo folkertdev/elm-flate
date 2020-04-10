@@ -46,7 +46,7 @@ chunksHelp chunkSize ( sizeRemaining, accum ) =
         -- only happens when the input buffer is empty
         Decode.succeed (Decode.Done [])
 
-    else if chunkSize > sizeRemaining then
+    else if chunkSize >= sizeRemaining then
         Decode.bytes sizeRemaining |> Decode.map (\new -> Done (List.reverse (( True, new ) :: accum)))
 
     else
@@ -136,6 +136,7 @@ encodeCompressDynamic maybeWindowSize buf bitWriter =
 encodeStatic : Maybe Int -> Bytes -> Bytes
 encodeStatic windowSize buffer =
     chunks default_block_size buffer
+        |> Debug.log "chunks"
         |> List.foldl (\chunk first -> first |> encodeStaticBlock windowSize chunk) BitWriter.empty
         |> BitWriter.run
         |> Encode.sequence
