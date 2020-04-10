@@ -36,7 +36,6 @@ suite =
                         rawData
                             |> List.take n
                             |> List.drop 8
-                            |> Debug.log "data"
 
                     n =
                         -- 138
@@ -65,14 +64,6 @@ suite =
                     |> Maybe.andThen (\b -> Decode.decode (unsignedInt8List (Bytes.width b)) b)
                     |> Expect.equal (Just rawData)
         ]
-
-
-logWidth name v =
-    let
-        _ =
-            Debug.log name (Bytes.width v)
-    in
-    v
 
 
 encodeUnsignedInt8 v =

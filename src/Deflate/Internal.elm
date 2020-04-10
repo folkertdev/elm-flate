@@ -98,6 +98,7 @@ encodeDynamic windowSize buffer =
             List.map (encodeDynamicBlock windowSize) (chunks default_block_size buffer)
     in
     List.foldl (\chunk first -> first |> chunk) BitWriter.empty encodedChunks
+        |> BitWriter.flush
         |> BitWriter.run
         |> Encode.sequence
         |> Encode.encode
@@ -109,7 +110,6 @@ encodeDynamicBlock windowSize ( isLastBlock, buffer ) bitWriter =
         |> BitWriter.writeBit isLastBlock
         |> BitWriter.writeBits 2 2
         |> encodeCompressDynamic windowSize buffer
-        |> BitWriter.flush
 
 
 encodeCompressDynamic : Maybe Int -> Bytes -> BitWriter -> BitWriter
@@ -136,8 +136,8 @@ encodeCompressDynamic maybeWindowSize buf bitWriter =
 encodeStatic : Maybe Int -> Bytes -> Bytes
 encodeStatic windowSize buffer =
     chunks default_block_size buffer
-        |> Debug.log "chunks"
         |> List.foldl (\chunk first -> first |> encodeStaticBlock windowSize chunk) BitWriter.empty
+        |> BitWriter.flush
         |> BitWriter.run
         |> Encode.sequence
         |> Encode.encode
@@ -149,7 +149,6 @@ encodeStaticBlock windowSize ( isLastBlock, buffer ) bitWriter =
         |> BitWriter.writeBit isLastBlock
         |> BitWriter.writeBits 2 1
         |> encodeCompressStatic windowSize buffer
-        |> BitWriter.flush
 
 
 encodeCompressStatic : Maybe Int -> Bytes -> BitWriter -> BitWriter
