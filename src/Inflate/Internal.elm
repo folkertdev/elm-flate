@@ -39,8 +39,8 @@ uncompressHelp output =
         uncompressBlock btype =
             case btype of
                 0 ->
-                    -- read 5 more bits (i.e. the first byte) without reading extra bytes into the `tag`
-                    BitReader.exactly 5 BitReader.getBit
+                    -- skip until the next byte
+                    BitReader.skipToByteBoundary
                         |> BitReader.andThen (\_ -> inflateUncompressedBlock)
                         |> BitReader.map (\bytes -> ByteArray.appendBytes bytes output)
 
@@ -515,11 +515,8 @@ decodeOffset outputLength dt =
 inflateUncompressedBlock : BitReader Bytes
 inflateUncompressedBlock =
     BitReader
-        (\state_ ->
-            let
-                state =
-                    BitReader.flush state_
-            in
+        (\state ->
+            -- assumption: we are at a byte boundary
             case Decode.decode (uncompressedBlockDecoder (Bytes.width state.buffer)) state.buffer of
                 Nothing ->
                     Err "inflateUncompressedBlock: ran out of bounds"

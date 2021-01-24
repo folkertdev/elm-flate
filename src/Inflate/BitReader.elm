@@ -1,4 +1,4 @@
-module Inflate.BitReader exposing (BitReader(..), State, andMap, andThen, decode, embed, error, exactly, flush, getBit, loop, map, map2, map3, map4, readBits, readMoreBits, runDecoder, succeed)
+module Inflate.BitReader exposing (BitReader(..), State, andMap, andThen, decode, embed, error, exactly, flush, getBit, getState, loop, map, map2, map3, map4, readBits, readMoreBits, runDecoder, skipToByteBoundary, succeed)
 
 import Array exposing (Array)
 import Bitwise
@@ -106,6 +106,7 @@ flush state =
 
 flushHelp : State -> Bytes
 flushHelp state0 =
+    -- assumption: we are at a byte boundary
     let
         availableSpace =
             32 - state0.bitsAvailable
@@ -170,6 +171,43 @@ decode bytes (BitReader reader) =
 
 type BitReader b
     = BitReader (State -> Result String ( b, State ))
+
+
+getState : BitReader State
+getState =
+    BitReader (\s -> Ok ( s, s ))
+
+
+skipToByteBoundary : BitReader ()
+skipToByteBoundary =
+    BitReader
+        (\s ->
+            -- Step 1: read bits until we have a multiple of 8 remaining
+            let
+                available =
+                    s.bitsAvailable + s.reserveAvailable
+
+                untilBoundary =
+                    available |> modBy 8
+
+                (BitReader step) =
+                    readBits untilBoundary 0
+            in
+            case step s of
+                Err e ->
+                    Err e
+
+                Ok ( _, newState ) ->
+                    -- Step 2: then move bits from the reserve to the tag, so both have a multiple of 8 number of bits
+                    case readMoreBits newState of
+                        Err e ->
+                            Err e
+
+                        Ok newerState ->
+                            -- Step 3: move those bits back into the buffer
+                            -- this is essential for reading uncompressed blocks!
+                            Ok ( (), flush newerState )
+        )
 
 
 succeed : a -> BitReader a
