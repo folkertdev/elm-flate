@@ -11,7 +11,6 @@ import Dict exposing (Dict)
 import Experimental.ByteArray as ByteArray exposing (ByteArray)
 import Inflate.BitReader as BitReader exposing (BitReader(..))
 import Inflate.BitSet as BitSet exposing (BitSet320)
-import List.Extra
 
 
 inflate : Bytes -> Result String Bytes

@@ -4,7 +4,6 @@ import Array exposing (Array)
 import Bitwise
 import Deflate.BitWriter as BitWriter exposing (BitWriter)
 import LengthLimitedHuffmanCodes
-import List.Extra
 
 
 type Code
@@ -145,7 +144,7 @@ restoreCanonicalHuffmanCodes bitWidths tree =
                 |> Array.indexedMap Tuple.pair
                 |> Array.filter (\( _, codeBitWidth ) -> codeBitWidth > 0)
                 |> Array.toList
-                |> List.Extra.stableSortWith (\( _, a ) ( _, b ) -> compare a b)
+                |> List.sortBy Tuple.second
 
         loop ( symbol, bitWidth ) ( code, prevWidth, currentTree ) =
             let

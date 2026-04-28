@@ -7,7 +7,6 @@ but the implementation is not as efficient
 -}
 
 import Array exposing (Array)
-import List.Extra
 
 
 type alias Node =
@@ -39,7 +38,7 @@ calculate maxBitWidth frequencies =
                 |> Array.filter (\( _, f ) -> f > 0)
                 |> Array.map (\( symbol, weight ) -> singletonNode symbol weight)
                 |> Array.toList
-                |> List.Extra.stableSortWith (\a b -> compare a.weight b.weight)
+                |> List.sortBy .weight
                 |> Array.fromList
 
         weighted =
