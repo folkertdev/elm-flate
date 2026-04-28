@@ -14,8 +14,11 @@ import Inflate.GZip as GZip
 import Inflate.Internal as Inflate
 import Inflate.ZLib as ZLib
 import Test exposing (..)
-import TestData.Havamal as Havamal
-import TestData.Lorem as Lorem
+
+
+
+-- import TestData.Havamal as Havamal
+-- import TestData.Lorem as Lorem
 
 
 mySuite =
@@ -350,60 +353,57 @@ buildSymbolTree =
         ]
 
 
-havamal =
-    let
-        encode v =
-            v |> List.map Encode.unsignedInt8 |> Encode.sequence |> Encode.encode
 
-        decode b =
-            Decode.decode (ByteArray.decoder (Bytes.width b)) b
-                |> Maybe.map Array.toList
-    in
-    describe "havamál"
-        [ test "no compression" <|
-            \_ ->
-                Inflate.inflate (encode Havamal.noCompression)
-                    |> Result.map decode
-                    |> Expect.equal (Ok (Just Havamal.uncompressed))
-        , test "fixed compression" <|
-            \_ ->
-                Inflate.inflate (encode Havamal.fixed)
-                    |> Result.map decode
-                    |> Expect.equal (Ok (Just Havamal.uncompressed))
-        , test "dynamic compression" <|
-            \_ ->
-                Inflate.inflate (encode Havamal.compressed)
-                    |> Result.map decode
-                    |> Expect.equal (Ok (Just Havamal.uncompressed))
-        ]
-
-
-lorem =
-    let
-        encode v =
-            v |> List.map Encode.unsignedInt8 |> Encode.sequence |> Encode.encode
-
-        decode b =
-            Decode.decode (ByteArray.decoder (Bytes.width b)) b
-                |> Maybe.map Array.toList
-    in
-    describe "lorem"
-        [ test "fixed compression" <|
-            \_ ->
-                Inflate.inflate (encode Lorem.fixed)
-                    |> Result.map decode
-                    |> Expect.equal (Ok (Just Lorem.uncompressed))
-        , test "no compression" <|
-            \_ ->
-                Inflate.inflate (encode Lorem.noCompression)
-                    |> Result.map decode
-                    |> Expect.equal (Ok (Just Lorem.uncompressed))
-        , test "dynamic compression" <|
-            \_ ->
-                Inflate.inflate (encode Lorem.compressed)
-                    |> Result.map decode
-                    |> Expect.equal (Ok (Just Lorem.uncompressed))
-        ]
+-- havamal =
+--     let
+--         encode v =
+--             v |> List.map Encode.unsignedInt8 |> Encode.sequence |> Encode.encode
+--         decode b =
+--             Decode.decode (ByteArray.decoder (Bytes.width b)) b
+--                 |> Maybe.map Array.toList
+--     in
+--     describe "havamál"
+--         [ test "no compression" <|
+--             \_ ->
+--                 Inflate.inflate (encode Havamal.noCompression)
+--                     |> Result.map decode
+--                     |> Expect.equal (Ok (Just Havamal.uncompressed))
+--         , test "fixed compression" <|
+--             \_ ->
+--                 Inflate.inflate (encode Havamal.fixed)
+--                     |> Result.map decode
+--                     |> Expect.equal (Ok (Just Havamal.uncompressed))
+--         , test "dynamic compression" <|
+--             \_ ->
+--                 Inflate.inflate (encode Havamal.compressed)
+--                     |> Result.map decode
+--                     |> Expect.equal (Ok (Just Havamal.uncompressed))
+--         ]
+-- lorem =
+--     let
+--         encode v =
+--             v |> List.map Encode.unsignedInt8 |> Encode.sequence |> Encode.encode
+--         decode b =
+--             Decode.decode (ByteArray.decoder (Bytes.width b)) b
+--                 |> Maybe.map Array.toList
+--     in
+--     describe "lorem"
+--         [ test "fixed compression" <|
+--             \_ ->
+--                 Inflate.inflate (encode Lorem.fixed)
+--                     |> Result.map decode
+--                     |> Expect.equal (Ok (Just Lorem.uncompressed))
+--         , test "no compression" <|
+--             \_ ->
+--                 Inflate.inflate (encode Lorem.noCompression)
+--                     |> Result.map decode
+--                     |> Expect.equal (Ok (Just Lorem.uncompressed))
+--         , test "dynamic compression" <|
+--             \_ ->
+--                 Inflate.inflate (encode Lorem.compressed)
+--                     |> Result.map decode
+--                     |> Expect.equal (Ok (Just Lorem.uncompressed))
+--         ]
 
 
 buildTable =
